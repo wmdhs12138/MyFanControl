@@ -373,7 +373,7 @@ void CCore::Uninit()
 }
 void CCore::Run()
 {
-	static int nNextChecktTime = 0;
+	ULONGLONG nNextCheckTick = 0;//下一个更新时间，使用单调时钟，避免睡眠跨午夜或系统时间回调后长时间不更新
 	static BOOL bSetPriority = FALSE;
 	m_config.LoadConfig();
 	//m_nInit = 2;
@@ -384,16 +384,14 @@ void CCore::Run()
 	if (m_nInit == 1)
 	{
 		TRACE0("内核开始运行。\n");
-		int curtime;
 		while (!m_nExit)
 		{
-			curtime = GetTime();
-			if (curtime >= nNextChecktTime || m_bForcedRefresh)
+			if (GetTickCount64() >= nNextCheckTick || m_bForcedRefresh)
 			{
 				//MessageBox(NULL , "工作中...", "MyFunColtrol" , 0);
 				Work();
-				m_nLastUpdateTime = curtime;//更新时间
-				nNextChecktTime = GetTime(NULL, m_config.UpdateInterval);//下一个更新时间
+				m_nLastUpdateTime = (int)GetTickCount();//更新时间，界面只判断其是否变化
+				nNextCheckTick = GetTickCount64() + m_config.UpdateInterval * 1000;//下一个更新时间
 				m_bForcedRefresh = FALSE;
 				if (!bSetPriority)
 				{

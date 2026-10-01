@@ -137,7 +137,7 @@ public:
 	int m_nCurDuty[2];//当前负载
 	int m_nCurRPM[2];//当前转速
 	BOOL m_bUpdateRPM;//是否更新转速，如果为0，只更新风扇温度和负载
-	int m_nLastUpdateTime;//最后更新时间
+	int m_nLastUpdateTime;//最后更新时间（GetTickCount），用于判断内核是否完成了新一轮更新
 	BOOL m_bForcedCooling;//强制冷却
 	BOOL m_bTakeOverStatus;//接管控制状态，描述最后一次调用的是m_pfnSetFanDuty（TRUE）还是m_pfnSetFANDutyAuto（FALSE）
 	BOOL m_bForcedRefresh;//立即刷新
