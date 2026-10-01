@@ -54,6 +54,9 @@ internal sealed class FakeBackend : IFanBackend
         (CpuDuty, GpuDuty) = (null, null);
     }
 
+    /// <summary>模拟其他程序修改了风扇负载（不记录到 Calls）。</summary>
+    public void External(int cpuDuty, int gpuDuty) => (CpuDuty, GpuDuty) = (cpuDuty, gpuDuty);
+
     public void Dispose()
     {
     }

@@ -10,6 +10,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
     private SettingsForm? _settings;
     private bool _polling;
+    private string? _lastExternal;
 
     public TrayContext(bool showSettings)
     {
@@ -56,6 +57,11 @@ internal sealed class TrayContext : ApplicationContext
             var response = await ServiceConnection.TrySendAsync(new PipeRequest { Command = FanPipe.Commands.Status });
             var status = response?.Status;
             _icon.Text = status is null ? "Clevo 风扇控制：服务未运行" : StatusText.Tooltip(status);
+            //冲突刚出现时提醒一次
+            var external = status?.ExternalControlMessage;
+            if (external is not null && _lastExternal is null)
+                _icon.ShowBalloonTip(15000, "Clevo 风扇控制：检测到冲突", external, ToolTipIcon.Warning);
+            _lastExternal = external;
             _forceCooling.Checked = status?.ForcedCooling ?? false;
             _forceCooling.Enabled = status is not null;
             _settings?.ShowStatus(status);

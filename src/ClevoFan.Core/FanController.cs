@@ -6,7 +6,10 @@ namespace ClevoFan.Core;
 /// 每次 <see cref="Tick"/> 完成一轮控制：读取、校验、按配置计算目标负载并写入。
 /// 不是线程安全的，由 <see cref="FanSupervisor"/> 串行调用。
 /// </summary>
-public sealed class FanController(IFanBackend backend, ILogger logger, Action<TimeSpan>? sleep = null)
+/// <param name="nowMs">单调时钟（毫秒），用于判断外部修改的频率。</param>
+/// <param name="otherControllers">说明当前运行的其他风扇控制程序（例如 Control Center），没有时返回 null。</param>
+public sealed class FanController(IFanBackend backend, ILogger logger, Action<TimeSpan>? sleep = null,
+    Func<long>? nowMs = null, Func<string?>? otherControllers = null)
 {
     public const int ForceCoolingPercent = 95;
 
@@ -23,6 +26,10 @@ public sealed class FanController(IFanBackend backend, ILogger logger, Action<Ti
     private int? _cpuTarget, _gpuTarget;
     private bool _invalidReported;
     private int _mismatchTicks;
+    private readonly ExternalControlDetector _external = new(nowMs ?? (() => Environment.TickCount64));
+    private int? _writtenCpu, _writtenGpu;
+    private bool _confirmed;
+    private string? _externalMessage;
 
     public FanConfig Config { get; set; } = new();
 
@@ -54,6 +61,7 @@ public sealed class FanController(IFanBackend backend, ILogger logger, Action<Ti
             logger.LogInformation("温度读数恢复正常（CPU {Cpu}℃，GPU {Gpu}℃）", reading.CpuTemp, reading.GpuTemp);
         }
         _lastValid = reading;
+        CheckExternalControl(reading);
 
         if (ForcedCooling)
         {
@@ -114,6 +122,8 @@ public sealed class FanController(IFanBackend backend, ILogger logger, Action<Ti
         _level[0] = _level[1] = 0;
         _cpuTarget = _gpuTarget = null;
         _mismatchTicks = 0;
+        _writtenCpu = _writtenGpu = null;
+        _confirmed = false;
     }
 
     /// <summary>生成状态；读数无效时显示上一次的有效读数。</summary>
@@ -137,7 +147,42 @@ public sealed class FanController(IFanBackend backend, ILogger logger, Action<Ti
             CpuLevel = _level[0],
             GpuLevel = _level[1],
             ForcedCooling = ForcedCooling,
+            ExternalControlMessage = _externalMessage,
         };
+    }
+
+    /// <summary>
+    /// 本程序写入的负载在 EC 读回确认生效后又变了，说明有其他程序（如 Control Center 的风扇模式、
+    /// Fn+1 风扇全速快捷键）或 EC 本身在修改风扇。写入后、确认前的不一致是 EC 生效延迟，不算。
+    /// </summary>
+    private void CheckExternalControl(FanReading reading)
+    {
+        if (TakenOver && _writtenCpu is int cpu && _writtenGpu is int gpu)
+        {
+            int readCpu = FanReading.DutyToPercent(reading.CpuDuty), readGpu = FanReading.DutyToPercent(reading.GpuDuty);
+            if (readCpu == cpu && readGpu == gpu)
+            {
+                _confirmed = true;
+            }
+            else if (_confirmed)
+            {
+                _confirmed = false;
+                if (_external.Record())
+                {
+                    var who = otherControllers?.Invoke();
+                    _externalMessage = $"检测到其他程序也在控制风扇：{ExternalControlDetector.Window.TotalMinutes:0} 分钟内负载被改动 {_external.RecentCount} 次" +
+                        $"（本程序设定 {cpu}%/{gpu}%，读回 {readCpu}%/{readGpu}%）。" +
+                        (who is null ? "可能来自 Control Center 的风扇模式、Fn+1 风扇全速快捷键或其他风扇控制程序。" : who + "。") +
+                        "请关闭其中的风扇控制，或在本程序中取消接管。";
+                    logger.LogWarning("{Message}", _externalMessage);
+                }
+            }
+        }
+        if (_external.Update())
+        {
+            _externalMessage = null;
+            logger.LogInformation("已有 {Minutes} 分钟未检测到其他程序修改风扇负载", ExternalControlDetector.ClearAfter.TotalMinutes);
+        }
     }
 
     private FanReading Read()
@@ -168,6 +213,9 @@ public sealed class FanController(IFanBackend backend, ILogger logger, Action<Ti
             logger.LogWarning("已连续 {Ticks} 轮写入负载 {Cpu}%/{Gpu}%，EC 读回仍为 {ReadCpu}%/{ReadGpu}%",
                 MismatchWarnTicks, cpuPercent, gpuPercent, FanReading.DutyToPercent(reading.CpuDuty), FanReading.DutyToPercent(reading.GpuDuty));
         backend.SetDuty(FanReading.PercentToDuty(cpuPercent), FanReading.PercentToDuty(gpuPercent));
+        _writtenCpu = cpuPercent;
+        _writtenGpu = gpuPercent;
+        _confirmed = false;
         if (!TakenOver)
         {
             TakenOver = true;
