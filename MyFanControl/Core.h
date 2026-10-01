@@ -148,6 +148,9 @@ public:
 	int m_nSetDutyLevel[2];//设置的转速挡位，最低速档为1，最高速档为10
 	int m_nCurDuty[2];//当前负载
 	int m_nCurRPM[2];//当前转速
+	int m_nRawTemp[2];//本轮从EC读到的原始温度（可能是无效值），用于日志
+	BOOL m_bReadingValid;//本轮温度读数是否有效，无效时m_nCurTemp保留上一次的有效值
+	BOOL m_bInvalidReported;//已记录读数异常，恢复正常时再记录一次
 	atomic<BOOL> m_bUpdateRPM;//是否更新转速，如果为0，只更新风扇温度和负载
 	atomic<int> m_nLastUpdateTime;//最后更新时间（GetTickCount），用于判断内核是否完成了新一轮更新
 	atomic<BOOL> m_bForcedCooling;//强制冷却
