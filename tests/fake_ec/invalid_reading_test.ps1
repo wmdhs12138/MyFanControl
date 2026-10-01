@@ -1,4 +1,4 @@
-# 用模拟的 ClevoEcInfo.dll 测试温度读数异常的处理，不接触真实硬件
+﻿# 用模拟的 ClevoEcInfo.dll 测试温度读数异常的处理，不接触真实硬件
 # 先运行 tests\fake_ec\build.cmd 和 msbuild 编译出 Release\MyFanControl.exe
 # 用法：pwsh -File tests\fake_ec\invalid_reading_test.ps1 [-StopRunning]
 #   -StopRunning：先正常关闭正在运行的 MyFanControl，测试结束后从原路径重新启动
