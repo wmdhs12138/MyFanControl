@@ -26,6 +26,7 @@ internal static class StatusText
     public static string State(FanStatus s) => s.State switch
     {
         FanState.Starting => "启动中",
+        FanState.Running when s.ExternalControlMessage is not null => "已接管（检测到其他程序也在控制风扇）",
         FanState.Running when s.ForcedCooling => "强制冷却中",
         FanState.Running when s.TakenOver => "已接管",
         FanState.Running => "EC 自动控制",

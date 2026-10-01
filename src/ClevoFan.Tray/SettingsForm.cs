@@ -17,6 +17,7 @@ internal sealed class SettingsForm : Form
     private readonly Label _cpuStatus = new() { AutoSize = true };
     private readonly Label _gpuStatus = new() { AutoSize = true };
     private readonly Label _state = new() { AutoSize = true };
+    private readonly Label _conflict = new() { AutoSize = true, ForeColor = Color.Firebrick, Visible = false };
     private readonly Label _message = new() { AutoSize = true, ForeColor = SystemColors.GrayText };
     private readonly Button _save = new() { Text = "保存", AutoSize = true };
     private readonly Button _defaults = new() { Text = "恢复默认值", AutoSize = true };
@@ -55,6 +56,7 @@ internal sealed class SettingsForm : Form
         root.Controls.Add(_cpuStatus);
         root.Controls.Add(_gpuStatus);
         root.Controls.Add(_state);
+        root.Controls.Add(_conflict);
         root.Controls.Add(Header("风扇曲线（负载 %）"));
         var editBar = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0) };
         editBar.Controls.AddRange([_editCpu, _editGpu, Cell("拖动圆点调整；方向键微调，按住 Shift 每次 5%")]);
@@ -127,6 +129,16 @@ internal sealed class SettingsForm : Form
         _cpuStatus.Text = StatusText.Fan("CPU", s.CpuTemp, s.CpuDutyPercent, s.CpuRpm, s.CpuTargetPercent);
         _gpuStatus.Text = StatusText.Fan("GPU", s.GpuTemp, s.GpuDutyPercent, s.GpuRpm, s.GpuTargetPercent);
         _state.Text = "状态：" + StatusText.State(s);
+        //提示较长，按曲线图宽度换行；显示/隐藏会改变窗口高度
+        bool conflict = s.ExternalControlMessage is not null;
+        _conflict.MaximumSize = new Size(Math.Max(_editor.Width, LogicalToDeviceUnits(400)), 0);
+        _conflict.Text = s.ExternalControlMessage ?? "";
+        if (_conflict.Visible != conflict)
+        {
+            _conflict.Visible = conflict;
+            if (IsHandleCreated)
+                FitToContent();
+        }
         _editor.SetTemperatures(s.CpuTemp > 0 ? s.CpuTemp : null, s.GpuTemp > 0 ? s.GpuTemp : null);
         ShowGpu(s);
     }

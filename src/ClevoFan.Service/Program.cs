@@ -45,7 +45,7 @@ builder.Services.AddSingleton<GpuHolder>();
 builder.Services.AddSingleton(sp =>
 {
     var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("ClevoFan");
-    var controller = new FanController(sp.GetRequiredService<IFanBackend>(), logger);
+    var controller = new FanController(sp.GetRequiredService<IFanBackend>(), logger, otherControllers: OtherFanControllers);
     var gpu = sp.GetRequiredService<GpuHolder>();
     return new FanSupervisor(controller, LoadConfig(store, logger), store, logger, IsLegacyRunning, NativeMethods.AwakeMilliseconds,
         gpu.Backend is { } backend ? new GpuLimiter(backend, logger) : null, gpu.UnavailableReason);
@@ -83,6 +83,21 @@ static FanConfig LoadConfig(ConfigStore store, ILogger logger)
     var defaults = new FanConfig();
     store.Save(defaults);
     return defaults;
+}
+
+//Control Center 中可以设置风扇模式的程序：CC40.exe（界面）、cc30wk.exe（后台）
+static string? OtherFanControllers()
+{
+    var running = new List<string>();
+    foreach (var name in new[] { "CC40", "cc30wk" })
+    {
+        var processes = Process.GetProcessesByName(name);
+        if (processes.Length > 0)
+            running.Add(name + ".exe");
+        foreach (var p in processes)
+            p.Dispose();
+    }
+    return running.Count == 0 ? null : $"Control Center（{string.Join("、", running)}）正在运行，很可能是它";
 }
 
 static bool IsLegacyRunning()

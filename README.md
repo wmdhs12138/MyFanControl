@@ -41,6 +41,8 @@ msbuild MyFanControl.sln /p:Configuration=Release /p:Platform=Win32
   启动时先交还一次，避免上次异常退出后停在手动模式；检测到原程序正在运行时暂停接管，避免两个程序同时控制
 - **GPU 限频**：通过 NVIDIA 驱动自带的 NVML 限制独显最高频率（只限制，不再提供原程序的超频）。只在独显通电时操作，
   不会为此唤醒双显卡笔记本的独显；独显重新通电、系统唤醒后自动重新应用，服务停止时解除。设置窗口打开时显示实时频率和利用率
+- **冲突检测**：接管后，写入的负载生效后又被改掉，说明有其他程序（如 Control Center 的风扇模式、Fn+1 风扇全速快捷键）
+  或 EC 在修改风扇；5 分钟内出现 3 次即在托盘提醒，并说明 Control Center 是否在运行。不会自动退让，10 分钟无改动后提醒解除
 
 已在 NH5x_7xRDx（Insyde BIOS，EC 07.05HE1）上测试。其他 Clevo 机型的 BIOS 若没有这个 WMI 接口，服务无法启动，原因记录在日志中。
 
@@ -65,6 +67,7 @@ tests\integration\service_test.ps1 -SourceDir ...   # 真机集成测试（管�
 dotnet build tools\gpuload -c Release -o tools\gpuload\bin\out   # GPU 满载工具（OpenCL）
 tests\integration\gpu_limit_test.ps1                # 真机 GPU 限频测试（管理员）
 tests\ui\curve_editor_test.ps1                      # 曲线编辑器界面测试（截图到 %TEMP%）
+tests\integration\conflict_test.ps1                 # 真机冲突检测测试（管理员）
 ```
 
 ## 原贴说明

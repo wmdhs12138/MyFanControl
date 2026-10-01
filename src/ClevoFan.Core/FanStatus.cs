@@ -39,6 +39,9 @@ public sealed record FanStatus
     public int GpuLevel { get; init; }
     public bool ForcedCooling { get; init; }
 
+    /// <summary>检测到其他程序也在控制风扇时的说明；为空表示没有冲突。</summary>
+    public string? ExternalControlMessage { get; init; }
+
     /// <summary>显卡名称；为空表示没有可用的 NVIDIA GPU（原因见 <see cref="GpuMessage"/>）。</summary>
     public string? GpuName { get; init; }
     public int? GpuMinClockMHz { get; init; }
