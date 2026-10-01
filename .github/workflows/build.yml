@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: microsoft/setup-msbuild@v3
+
+      - name: Build
+        run: msbuild MyFanControl.sln /m /p:Configuration=Release /p:Platform=Win32
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MyFanControl-${{ github.sha }}
+          path: Release/MyFanControl.exe
+
+      # 推送 v* 标签时发布 Release，只包含本仓库编译的 exe；
+      # ClevoEcInfo.dll、NVGPU_DLL.dll 和 NTPort 安装包请从原作者的 Release 获取
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" Release/MyFanControl.exe --title "${{ github.ref_name }}" --generate-notes

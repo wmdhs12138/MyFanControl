@@ -1,5 +1,5 @@
 
-// MyFanControlDlg.cpp : ÊµÏÖÎÄ¼ş
+// MyFanControlDlg.cpp : å®ç°æ–‡ä»¶
 //
 
 #include "stdafx.h"
@@ -57,20 +57,20 @@ int GetCpuClock(int *CPU_usage)
 }
 ////
 
-// ÓÃÓÚÓ¦ÓÃ³ÌĞò¡°¹ØÓÚ¡±²Ëµ¥ÏîµÄ CAboutDlg ¶Ô»°¿ò
+// ç”¨äºåº”ç”¨ç¨‹åºâ€œå…³äºâ€èœå•é¡¹çš„ CAboutDlg å¯¹è¯æ¡†
 
 class CAboutDlg : public CDialogEx
 {
 public:
 	CAboutDlg();
 
-// ¶Ô»°¿òÊı¾İ
+// å¯¹è¯æ¡†æ•°æ®
 	enum { IDD = IDD_ABOUTBOX };
 
 	protected:
-	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV Ö§³Ö
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV æ”¯æŒ
 
-// ÊµÏÖ
+// å®ç°
 protected:
 	DECLARE_MESSAGE_MAP()
 };
@@ -88,7 +88,7 @@ BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
 END_MESSAGE_MAP()
 
 
-// CMyFanControlDlg ¶Ô»°¿ò
+// CMyFanControlDlg å¯¹è¯æ¡†
 
 
 
@@ -96,12 +96,15 @@ CMyFanControlDlg::CMyFanControlDlg(CWnd* pParent /*=NULL*/)
 	: CDialogEx(CMyFanControlDlg::IDD, pParent)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
-	m_bForceHideWindow = TRUE;//Æô¶¯Ê±Ç¿ÖÆÒş²Ø´°¿Ú
+	m_bForceHideWindow = TRUE;//å¯åŠ¨æ—¶å¼ºåˆ¶éšè—çª—å£
 #ifdef MY_DEBUG
-	m_bForceHideWindow = FALSE;//Æô¶¯Ê±Ç¿ÖÆÒş²Ø´°¿Ú
+	m_bForceHideWindow = FALSE;//å¯åŠ¨æ—¶å¼ºåˆ¶éšè—çª—å£
 #endif
 	m_hCoreThread = NULL;
 	m_nLastCoreUpdateTime = -1;
+	m_nLastHeartbeat = -1;
+	m_nCheckThreadCount = 0;
+	m_bStallPrompt = FALSE;
 	m_bWindowVisible = FALSE;
 	m_bAdvancedMode = TRUE;
 	m_nWindowSize[0] = 0;
@@ -155,10 +158,12 @@ BEGIN_MESSAGE_MAP(CMyFanControlDlg, CDialogEx)
 	ON_WM_QUERYDRAGICON()
 	ON_WM_WINDOWPOSCHANGING()
 	ON_WM_TIMER()
+	ON_WM_POWERBROADCAST()
+	ON_MESSAGE(WM_CORE_ERROR, &CMyFanControlDlg::OnCoreError)
 	ON_BN_CLICKED(IDC_BUTTON_SAVE, &CMyFanControlDlg::OnBnClickedButtonSave)
 	ON_BN_CLICKED(IDC_BUTTON_RESET, &CMyFanControlDlg::OnBnClickedButtonReset)
 	ON_BN_CLICKED(IDC_BUTTON_LOAD, &CMyFanControlDlg::OnBnClickedButtonLoad)
-	ON_MESSAGE(WM_SHOWTASK, &CMyFanControlDlg::OnShowTask)//ÏûÏ¢Ó³Éä
+	ON_MESSAGE(WM_SHOWTASK, &CMyFanControlDlg::OnShowTask)//æ¶ˆæ¯æ˜ å°„
 	ON_BN_CLICKED(IDC_CHECK_TAKEOVER, &CMyFanControlDlg::OnBnClickedCheckTakeover)
 	ON_BN_CLICKED(IDC_CHECK_FORCE, &CMyFanControlDlg::OnBnClickedCheckForce)
 	ON_BN_CLICKED(IDC_CHECK_LINEAR, &CMyFanControlDlg::OnBnClickedCheckLinear)
@@ -168,15 +173,15 @@ BEGIN_MESSAGE_MAP(CMyFanControlDlg, CDialogEx)
 END_MESSAGE_MAP()
 
 
-// CMyFanControlDlg ÏûÏ¢´¦Àí³ÌĞò
+// CMyFanControlDlg æ¶ˆæ¯å¤„ç†ç¨‹åº
 
 BOOL CMyFanControlDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 
-	// ½«¡°¹ØÓÚ...¡±²Ëµ¥ÏîÌí¼Óµ½ÏµÍ³²Ëµ¥ÖĞ¡£
+	// å°†â€œå…³äº...â€èœå•é¡¹æ·»åŠ åˆ°ç³»ç»Ÿèœå•ä¸­ã€‚
 
-	// IDM_ABOUTBOX ±ØĞëÔÚÏµÍ³ÃüÁî·¶Î§ÄÚ¡£
+	// IDM_ABOUTBOX å¿…é¡»åœ¨ç³»ç»Ÿå‘½ä»¤èŒƒå›´å†…ã€‚
 	ASSERT((IDM_ABOUTBOX & 0xFFF0) == IDM_ABOUTBOX);
 	ASSERT(IDM_ABOUTBOX < 0xF000);
 
@@ -194,23 +199,31 @@ BOOL CMyFanControlDlg::OnInitDialog()
 		}
 	}
 
-	// ÉèÖÃ´Ë¶Ô»°¿òµÄÍ¼±ê¡£  µ±Ó¦ÓÃ³ÌĞòÖ÷´°¿Ú²»ÊÇ¶Ô»°¿òÊ±£¬¿ò¼Ü½«×Ô¶¯
-	//  Ö´ĞĞ´Ë²Ù×÷
-	SetIcon(m_hIcon, TRUE);			// ÉèÖÃ´óÍ¼±ê
-	SetIcon(m_hIcon, FALSE);		// ÉèÖÃĞ¡Í¼±ê
+	// è®¾ç½®æ­¤å¯¹è¯æ¡†çš„å›¾æ ‡ã€‚  å½“åº”ç”¨ç¨‹åºä¸»çª—å£ä¸æ˜¯å¯¹è¯æ¡†æ—¶ï¼Œæ¡†æ¶å°†è‡ªåŠ¨
+	//  æ‰§è¡Œæ­¤æ“ä½œ
+	SetIcon(m_hIcon, TRUE);			// è®¾ç½®å¤§å›¾æ ‡
+	SetIcon(m_hIcon, FALSE);		// è®¾ç½®å°å›¾æ ‡
 
-	// TODO:  ÔÚ´ËÌí¼Ó¶îÍâµÄ³õÊ¼»¯´úÂë
-	//»ñÈ¡´°¿ÚÍêÕû³ß´ç
+	// TODO:  åœ¨æ­¤æ·»åŠ é¢å¤–çš„åˆå§‹åŒ–ä»£ç 
+	//è·å–çª—å£å®Œæ•´å°ºå¯¸
 	CRect rect;
 	this->GetWindowRect(rect);
 	m_nWindowSize[0] = rect.Width();
 	m_nWindowSize[1] = rect.Height();
 	SetAdvancedMode(FALSE);
 
-	SetTray("À¶Ìì·çÉÈ¼à¿Ø");
+	SetTray("è“å¤©é£æ‰‡ç›‘æ§");
 
 
 
+	//è½½å…¥é…ç½®å’Œåˆå§‹åŒ–æ¥å£éƒ½å¯èƒ½å¼¹çª—ï¼Œå¿…é¡»åœ¨ç•Œé¢çº¿ç¨‹ã€å¯åŠ¨å·¥ä½œçº¿ç¨‹ä¹‹å‰å®Œæˆ
+	LogWrite("ç¨‹åºå¯åŠ¨ï¼Œç¼–è¯‘äº " __DATE__ " " __TIME__);
+	m_core.m_hNotifyWnd = m_hWnd;
+	m_core.m_bVerbose = (strstr(::GetCommandLine(), "/verbose") != NULL);
+	if (m_core.m_bVerbose)
+		LogWrite("å·²å¼€å¯è¯¦ç»†æ—¥å¿—");
+	m_core.m_config.LoadConfig();
+	m_core.Init();
 	if (m_hCoreThread == NULL)
 	{
 		DWORD dwThreadID = 0;
@@ -219,7 +232,7 @@ BOOL CMyFanControlDlg::OnInitDialog()
 	SetTimer(0, 100, NULL);
 	m_ctlAutorun.SetCheck(SetAutorunReg(FALSE) || SetAutorunTask(FALSE));
 
-	return TRUE;  // ³ı·Ç½«½¹µãÉèÖÃµ½¿Ø¼ş£¬·ñÔò·µ»Ø TRUE
+	return TRUE;  // é™¤éå°†ç„¦ç‚¹è®¾ç½®åˆ°æ§ä»¶ï¼Œå¦åˆ™è¿”å› TRUE
 }
 
 void CMyFanControlDlg::OnSysCommand(UINT nID, LPARAM lParam)
@@ -235,19 +248,19 @@ void CMyFanControlDlg::OnSysCommand(UINT nID, LPARAM lParam)
 	}
 }
 
-// Èç¹ûÏò¶Ô»°¿òÌí¼Ó×îĞ¡»¯°´Å¥£¬ÔòĞèÒªÏÂÃæµÄ´úÂë
-//  À´»æÖÆ¸ÃÍ¼±ê¡£  ¶ÔÓÚÊ¹ÓÃÎÄµµ/ÊÓÍ¼Ä£ĞÍµÄ MFC Ó¦ÓÃ³ÌĞò£¬
-//  Õâ½«ÓÉ¿ò¼Ü×Ô¶¯Íê³É¡£
+// å¦‚æœå‘å¯¹è¯æ¡†æ·»åŠ æœ€å°åŒ–æŒ‰é’®ï¼Œåˆ™éœ€è¦ä¸‹é¢çš„ä»£ç 
+//  æ¥ç»˜åˆ¶è¯¥å›¾æ ‡ã€‚  å¯¹äºä½¿ç”¨æ–‡æ¡£/è§†å›¾æ¨¡å‹çš„ MFC åº”ç”¨ç¨‹åºï¼Œ
+//  è¿™å°†ç”±æ¡†æ¶è‡ªåŠ¨å®Œæˆã€‚
 
 void CMyFanControlDlg::OnPaint()
 {
 	if (IsIconic())
 	{
-		CPaintDC dc(this); // ÓÃÓÚ»æÖÆµÄÉè±¸ÉÏÏÂÎÄ
+		CPaintDC dc(this); // ç”¨äºç»˜åˆ¶çš„è®¾å¤‡ä¸Šä¸‹æ–‡
 
 		SendMessage(WM_ICONERASEBKGND, reinterpret_cast<WPARAM>(dc.GetSafeHdc()), 0);
 
-		// Ê¹Í¼±êÔÚ¹¤×÷Çø¾ØĞÎÖĞ¾ÓÖĞ
+		// ä½¿å›¾æ ‡åœ¨å·¥ä½œåŒºçŸ©å½¢ä¸­å±…ä¸­
 		int cxIcon = GetSystemMetrics(SM_CXICON);
 		int cyIcon = GetSystemMetrics(SM_CYICON);
 		CRect rect;
@@ -255,7 +268,7 @@ void CMyFanControlDlg::OnPaint()
 		int x = (rect.Width() - cxIcon + 1) / 2;
 		int y = (rect.Height() - cyIcon + 1) / 2;
 
-		// »æÖÆÍ¼±ê
+		// ç»˜åˆ¶å›¾æ ‡
 		dc.DrawIcon(x, y, m_hIcon);
 	}
 	else
@@ -264,8 +277,8 @@ void CMyFanControlDlg::OnPaint()
 	}
 }
 
-//µ±ÓÃ»§ÍÏ¶¯×îĞ¡»¯´°¿ÚÊ±ÏµÍ³µ÷ÓÃ´Ëº¯ÊıÈ¡µÃ¹â±ê
-//ÏÔÊ¾¡£
+//å½“ç”¨æˆ·æ‹–åŠ¨æœ€å°åŒ–çª—å£æ—¶ç³»ç»Ÿè°ƒç”¨æ­¤å‡½æ•°å–å¾—å…‰æ ‡
+//æ˜¾ç¤ºã€‚
 HCURSOR CMyFanControlDlg::OnQueryDragIcon()
 {
 	return static_cast<HCURSOR>(m_hIcon);
@@ -290,36 +303,33 @@ void CMyFanControlDlg::OnWindowPosChanging(WINDOWPOS* lpwndpos)
 
 	CDialogEx::OnWindowPosChanging(lpwndpos);
 
-	// TODO:  ÔÚ´Ë´¦Ìí¼ÓÏûÏ¢´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤å¤„æ·»åŠ æ¶ˆæ¯å¤„ç†ç¨‹åºä»£ç 
 }
 
 
 void CMyFanControlDlg::OnOK()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó×¨ÓÃ´úÂëºÍ/»òµ÷ÓÃ»ùÀà
+	// TODO:  åœ¨æ­¤æ·»åŠ ä¸“ç”¨ä»£ç å’Œ/æˆ–è°ƒç”¨åŸºç±»
 	if (!m_core.m_nExit)
 		m_core.m_nExit = 1;
 
-	if (m_core.m_nExit == 1)//µÈ´ıÄÚºËÏß³Ì½áÊø
+	if (m_hCoreThread)//ç­‰å¾…å†…æ ¸çº¿ç¨‹ç»“æŸ
 	{
-		int count = 0;
-		while (m_core.m_nExit == 1 && count++<100)
-		{
-			Sleep(100);
-		}
+		if (WaitForSingleObject(m_hCoreThread, 10000) != WAIT_OBJECT_0)
+			LogWrite("å·¥ä½œçº¿ç¨‹10ç§’å†…æœªç»“æŸï¼Œç›´æ¥é€€å‡º");
+		CloseHandle(m_hCoreThread);
+		m_hCoreThread = NULL;
 	}
-	if (m_core.m_nExit)
-	{
-		KillTimer(0);
-		SetTray(NULL);
-		CDialogEx::OnOK();
-	}
+	LogWrite("ç¨‹åºé€€å‡º");
+	KillTimer(0);
+	SetTray(NULL);
+	CDialogEx::OnOK();
 }
 
 
 void CMyFanControlDlg::OnCancel()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó×¨ÓÃ´úÂëºÍ/»òµ÷ÓÃ»ùÀà
+	// TODO:  åœ¨æ­¤æ·»åŠ ä¸“ç”¨ä»£ç å’Œ/æˆ–è°ƒç”¨åŸºç±»
 	if (m_bWindowVisible)
 	{
 		this->ShowWindow(SW_HIDE);
@@ -335,54 +345,90 @@ void CMyFanControlDlg::OnCancel()
 
 void CMyFanControlDlg::OnTimer(UINT_PTR nIDEvent)
 {
-	// TODO:  ÔÚ´ËÌí¼ÓÏûÏ¢´¦Àí³ÌĞò´úÂëºÍ/»òµ÷ÓÃÄ¬ÈÏÖµ
-	static int nCheckThreadCount = 0;//¼ì²é¹¤×÷Ïß³Ì×´Ì¬¼ÆÊıÆ÷£¬Ã¿100ms+1
+	// TODO:  åœ¨æ­¤æ·»åŠ æ¶ˆæ¯å¤„ç†ç¨‹åºä»£ç å’Œ/æˆ–è°ƒç”¨é»˜è®¤å€¼
 	CDialogEx::OnTimer(nIDEvent);
 	if (m_core.m_nExit == 2)
 	{
 		OnOK();
+		return;
 	}
 
-	//¼ì²é¹¤×÷Ïß³ÌÊÇ·ñ¿¨ËÀ
-	nCheckThreadCount++;
-	if (nCheckThreadCount > 150)//ÄÚºËÒÑ¾­15ÃëÎ´Íê³ÉÒ»¸öÑ­»·£¬ÈÏÎª¿¨ËÀ£¬½áÊø³ÌĞò
+	//æ£€æŸ¥å·¥ä½œçº¿ç¨‹æ˜¯å¦å¡ä½ï¼šæ­£å¸¸æƒ…å†µä¸‹å·¥ä½œçº¿ç¨‹æ¯100mså¿ƒè·³ä¸€æ¬¡ï¼ˆç¡çœ çŠ¶æ€ä¸‹ä¹Ÿæ˜¯ï¼‰
+	//ä¸å†å¼ºåˆ¶ç»“æŸçº¿ç¨‹ï¼šçº¿ç¨‹å¯èƒ½æ­£åœ¨è¯»å†™ECï¼Œå¼ºæ€ä¼šè®©ECå¤„äºä¸ç¡®å®šçŠ¶æ€
+	if (m_core.m_nHeartbeat != m_nLastHeartbeat)
 	{
-		KillTimer(0);
-		m_core.m_nExit = 2;
-		TerminateThread(m_hCoreThread, -1);//Ç¿ÖÆ½áÊø½ø³Ì
-		CloseHandle(m_hCoreThread);
-		m_hCoreThread = NULL;
-		MessageBox("¼ì²âµ½¹¤×÷Ïß³Ì¿¨ËÀ£¬³ÌĞò½«Á¢¿Ì½áÊø£¬Èç¹ûÖØÊÔºóÎÊÌâÈÔÈ»´æÔÚ£¬ËµÃ÷±¾³ÌĞò¿ÉÄÜ²»ÊÊÓÃÓÚ´ËµçÄÔ¡£");
-		OnOK();
+		m_nLastHeartbeat = m_core.m_nHeartbeat;
+		m_nCheckThreadCount = 0;
+	}
+	else if (++m_nCheckThreadCount == 150 && !m_bStallPrompt)//15ç§’æ²¡æœ‰å¿ƒè·³ï¼Œåªæç¤ºä¸€æ¬¡
+	{
+		m_bStallPrompt = TRUE;
+		LogWrite("å·¥ä½œçº¿ç¨‹å·²15ç§’æ²¡æœ‰å“åº”");
+		int rv = MessageBox("å·¥ä½œçº¿ç¨‹å·²è¶…è¿‡15ç§’æ²¡æœ‰å“åº”ï¼Œé£æ‰‡æ§åˆ¶å¯èƒ½æ²¡æœ‰ç”Ÿæ•ˆã€‚\n\n"
+			"é€‰æ‹©â€œæ˜¯â€é€€å‡ºç¨‹åºï¼ˆé€€å‡ºæ—¶ä¼šå°è¯•æ¢å¤é£æ‰‡è‡ªåŠ¨æ§åˆ¶ï¼‰ï¼Œé€‰æ‹©â€œå¦â€ç»§ç»­ç­‰å¾…ã€‚",
+			NULL, MB_YESNO | MB_ICONWARNING);
+		m_bStallPrompt = FALSE;
+		if (rv == IDYES)
+		{
+			OnOK();
+			return;
+		}
 	}
 
 	if (m_core.m_nInit != 1)
 		return;
 
 
-	//¸ù¾İ´°¿ÚÏÔÊ¾×´Ì¬À´Ë¢ĞÂ
+	//æ ¹æ®çª—å£æ˜¾ç¤ºçŠ¶æ€æ¥åˆ·æ–°
 	static BOOL LastVisible = FALSE;
 	m_bWindowVisible = IsWindowVisible();
 	if (m_bWindowVisible && !LastVisible)
 	{
-		m_core.m_bUpdateRPM = TRUE;//¸üĞÂ·çÉÈ×ªËÙ
+		m_core.m_bUpdateRPM = TRUE;//æ›´æ–°é£æ‰‡è½¬é€Ÿ
 		UpdateGui(TRUE);
 	}
 	else if (!m_bWindowVisible && LastVisible)
 	{
 		m_core.m_bUpdateRPM = FALSE;
-		//AfxMessageBox("´°¿ÚÒÑÒş²Ø");
+		//AfxMessageBox("çª—å£å·²éšè—");
 	}
 	LastVisible = m_bWindowVisible;
-	// ÄÚºËÒÑ¾­¸üĞÂÊı¾İ£¬ĞèÒª¸üĞÂ½çÃæ
+	// å†…æ ¸å·²ç»æ›´æ–°æ•°æ®ï¼Œéœ€è¦æ›´æ–°ç•Œé¢
 	if (m_nLastCoreUpdateTime != m_core.m_nLastUpdateTime)
 	{
 		if (m_bWindowVisible)
 			UpdateGui(FALSE);
-		nCheckThreadCount = 0;
 		m_nLastCoreUpdateTime = m_core.m_nLastUpdateTime;
 	}
 	//
+}
+
+UINT CMyFanControlDlg::OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData)
+{
+	switch (nPowerEvent)
+	{
+	case PBT_APMSUSPEND:
+		//ç³»ç»Ÿç»™æ¯ä¸ªç¨‹åºå¤„ç†ç¡çœ é€šçŸ¥çš„æ—¶é—´æœ‰é™ï¼Œæœ€å¤šç­‰1.5ç§’
+		LogWrite("æ”¶åˆ°ç³»ç»Ÿç¡çœ é€šçŸ¥");
+		m_core.Suspend(1500);
+		break;
+	case PBT_APMRESUMEAUTOMATIC://æ¯æ¬¡å”¤é†’éƒ½ä¼šæ”¶åˆ°
+	case PBT_APMRESUMESUSPEND://ç”¨æˆ·æ“ä½œå”¤é†’æ—¶è¿˜ä¼šæ”¶åˆ°
+		LogWrite("æ”¶åˆ°ç³»ç»Ÿå”¤é†’é€šçŸ¥(%u)", nPowerEvent);
+		m_nCheckThreadCount = 0;
+		m_core.Resume();
+		break;
+	}
+	return CDialogEx::OnPowerBroadcast(nPowerEvent, nEventData);
+}
+
+LRESULT CMyFanControlDlg::OnCoreError(WPARAM wParam, LPARAM lParam)
+{
+	CString *p = (CString *)lParam;
+	CString str = *p;
+	delete p;
+	MessageBox(str, NULL, MB_ICONWARNING);
+	return 0;
 }
 
 void CMyFanControlDlg::UpdateGui(BOOL bFull)
@@ -393,31 +439,31 @@ void CMyFanControlDlg::UpdateGui(BOOL bFull)
 	{
 		if (!bFull)
 		{
-			UpdateGui(TRUE);//ĞèÒªÍêÕû¸üĞÂ½çÃæ
+			UpdateGui(TRUE);//éœ€è¦å®Œæ•´æ›´æ–°ç•Œé¢
 			return;
 		}
-		//µÃµ½¿Ø¼ş´óĞ¡
+		//å¾—åˆ°æ§ä»¶å¤§å°
 		CRect rect;
 		
 		m_ctlStatus.GetWindowRect(rect);
 		int width = rect.Width();
-		//ÉèÖÃĞĞÁĞÊı
-		m_ctlStatus.DeleteAllItems();//É¾³ıËùÓĞµ¥Ôª¸ñ
-		while (m_ctlStatus.DeleteColumn(0));//É¾³ıËùÓĞÁĞ
+		//è®¾ç½®è¡Œåˆ—æ•°
+		m_ctlStatus.DeleteAllItems();//åˆ é™¤æ‰€æœ‰å•å…ƒæ ¼
+		while (m_ctlStatus.DeleteColumn(0));//åˆ é™¤æ‰€æœ‰åˆ—
 		int i = 0;
 		m_ctlStatus.InsertColumn(i++, "", LVCFMT_CENTER, int(width * 0.32));
 		m_ctlStatus.InsertColumn(i++, "CPU", LVCFMT_CENTER, int(width * 0.33));
 		m_ctlStatus.InsertColumn(i++, "GPU", LVCFMT_CENTER, int(width * 0.33));
 		i = 0;
-		m_ctlStatus.InsertItem(i++, "µ±Ç°ÎÂ¶È");
-		m_ctlStatus.InsertItem(i++, "Éè¶¨µ²Î»");
-		m_ctlStatus.InsertItem(i++, "×ªËÙ%");
-		//m_ctlStatus.InsertItem(i++, "Éè¶¨¸ºÔØ");
-		m_ctlStatus.InsertItem(i++, "×ªËÙRPM");
-		m_ctlStatus.InsertItem(i++, "ÔËĞĞÆµÂÊ");
-		m_ctlStatus.InsertItem(i++, "Ê¹ÓÃÂÊ%");
+		m_ctlStatus.InsertItem(i++, "å½“å‰æ¸©åº¦");
+		m_ctlStatus.InsertItem(i++, "è®¾å®šæŒ¡ä½");
+		m_ctlStatus.InsertItem(i++, "è½¬é€Ÿ%");
+		//m_ctlStatus.InsertItem(i++, "è®¾å®šè´Ÿè½½");
+		m_ctlStatus.InsertItem(i++, "è½¬é€ŸRPM");
+		m_ctlStatus.InsertItem(i++, "è¿è¡Œé¢‘ç‡");
+		m_ctlStatus.InsertItem(i++, "ä½¿ç”¨ç‡%");
 	}
-	//ÏÔÊ¾×´Ì¬ĞÅÏ¢
+	//æ˜¾ç¤ºçŠ¶æ€ä¿¡æ¯
 	char str[256];
 	for (int i = 0; i < 2; i++)
 	{
@@ -457,7 +503,7 @@ void CMyFanControlDlg::UpdateGui(BOOL bFull)
 		}*/
 
 	}
-	//Ç¿ÖÆÀäÈ´×´Ì¬
+	//å¼ºåˆ¶å†·å´çŠ¶æ€
 	int fc = m_ctlForcedCooling.GetCheck();
 	if (fc ^ m_core.m_bForcedCooling)
 	{
@@ -466,37 +512,37 @@ void CMyFanControlDlg::UpdateGui(BOOL bFull)
 	//////////////////////////////////////////////////////////
 	if (!bFull)
 		return;
-	//½Ó¹Ü¿ØÖÆ
+	//æ¥ç®¡æ§åˆ¶
 	int to = m_ctlTakeOver.GetCheck();
 	if (to ^ m_core.m_config.TakeOver)
 	{
 		m_ctlTakeOver.SetCheck(m_core.m_config.TakeOver);
 	}
-	//ÏßĞÔ¿ØÖÆ
+	//çº¿æ€§æ§åˆ¶
 	int lc = m_ctlLinear.GetCheck();
 	if (lc ^ m_core.m_config.Linear)
 	{
 		m_ctlLinear.SetCheck(m_core.m_config.Linear);
 	}
-	//GPUÏŞÆµ
+	//GPUé™é¢‘
 	int lf = m_ctlLockGpuFrequancy.GetCheck();
 	if (lf ^ m_core.m_config.LockGPUFrequency)
 	{
 		m_ctlLockGpuFrequancy.SetCheck(m_core.m_config.LockGPUFrequency);
 	}
-	//¸üĞÂ¼ä¸ô
+	//æ›´æ–°é—´éš”
 	sprintf_s(str, 256, "%d", m_core.m_config.UpdateInterval);
 	m_ctlInterval.SetWindowTextA(str);
-	//¹ı¶ÉÎÂ¶È
+	//è¿‡æ¸¡æ¸©åº¦
 	sprintf_s(str, 256, "%d", m_core.m_config.TransitionTemp);
 	m_ctlTransition.SetWindowTextA(str);
-	//Ç¿ÖÆÀäÈ´ÎÂ¶È
+	//å¼ºåˆ¶å†·å´æ¸©åº¦
 	sprintf_s(str, 256, "%d", m_core.m_config.ForceTemp);
 	m_ctlForceTemp.SetWindowTextA(str);
-	//GPUÆµÂÊ
+	//GPUé¢‘ç‡
 	sprintf_s(str, 256, "%d", m_core.m_config.GPUFrequency);
 	m_ctlFrequency.SetWindowTextA(str);
-	//×Ô¶¨Òå×ªËÙ¿ØÖÆ
+	//è‡ªå®šä¹‰è½¬é€Ÿæ§åˆ¶
 	for (int i = 0; i < 2; i++)
 	{
 		for (int j = 0; j < 10; j++)
@@ -509,13 +555,13 @@ void CMyFanControlDlg::UpdateGui(BOOL bFull)
 
 BOOL CMyFanControlDlg::CheckAndSave()
 {
-	//¼ì²éÉèÖÃ
+	//æ£€æŸ¥è®¾ç½®
 	char str[256];
 	m_ctlInterval.GetWindowTextA(str,256);
 	int nInterval = atoi(str);
 	if (nInterval < 1 || nInterval > 5)
 	{
-		AfxMessageBox("¸üĞÂ¼ä¸ô±ØĞëÎª1-5");
+		AfxMessageBox("æ›´æ–°é—´éš”å¿…é¡»ä¸º1-5");
 		return FALSE;
 	}
 	//
@@ -523,7 +569,7 @@ BOOL CMyFanControlDlg::CheckAndSave()
 	int nTransition = atoi(str);
 	if (nTransition < 0 || nTransition > 10)
 	{
-		AfxMessageBox("¹ı¶ÉÎÂ¶È±ØĞëÎª0-10");
+		AfxMessageBox("è¿‡æ¸¡æ¸©åº¦å¿…é¡»ä¸º0-10");
 		return FALSE;
 	}
 	//
@@ -531,7 +577,7 @@ BOOL CMyFanControlDlg::CheckAndSave()
 	int nForceTemp = atoi(str);
 	if (nForceTemp < 40 || nForceTemp > 90)
 	{
-		AfxMessageBox("Ç¿ÖÆÀäÈ´ÎÂ¶È±ØĞëÎª40-90");
+		AfxMessageBox("å¼ºåˆ¶å†·å´æ¸©åº¦å¿…é¡»ä¸º40-90");
 		return FALSE;
 	}
 	//
@@ -553,13 +599,13 @@ BOOL CMyFanControlDlg::CheckAndSave()
 			if (nDutyList[i][j]<0 || nDutyList[i][j]>100)
 			{
 				char str2[256];
-				sprintf_s(str2, 256, "%s·çÉÈ×ªËÙÉè¶¨´íÎó£¬±ØĞëÎª0-100",i?"GPU":"CPU");
+				sprintf_s(str2, 256, "%sé£æ‰‡è½¬é€Ÿè®¾å®šé”™è¯¯ï¼Œå¿…é¡»ä¸º0-100",i?"GPU":"CPU");
 				AfxMessageBox(str2);
 				return FALSE;
 			}
 		}
 	}
-	//Ó¦ÓÃÉèÖÃ
+	//åº”ç”¨è®¾ç½®
 	m_core.m_config.UpdateInterval = nInterval;
 	m_core.m_config.TransitionTemp = nTransition;
 	m_core.m_config.ForceTemp = nForceTemp;
@@ -571,14 +617,14 @@ BOOL CMyFanControlDlg::CheckAndSave()
 			m_core.m_config.DutyList[i][j] = nDutyList[i][j];
 		}
 	}
-	//±£´æ
+	//ä¿å­˜
 	m_core.m_config.SaveConfig();
 	return TRUE;
 }
 
 void CMyFanControlDlg::OnBnClickedButtonSave()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	if (CheckAndSave())
 		UpdateGui(TRUE);
 }
@@ -586,7 +632,7 @@ void CMyFanControlDlg::OnBnClickedButtonSave()
 
 void CMyFanControlDlg::OnBnClickedButtonReset()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	m_core.m_config.LoadDefault();
 	UpdateGui(TRUE);
 }
@@ -594,12 +640,12 @@ void CMyFanControlDlg::OnBnClickedButtonReset()
 
 void CMyFanControlDlg::OnBnClickedButtonLoad()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	m_core.m_config.LoadConfig();
 	UpdateGui(TRUE);
 }
 
-void CMyFanControlDlg::SetTray(PCSTR string)//ÉèÖÃÍĞÅÌÍ¼±ê
+void CMyFanControlDlg::SetTray(PCSTR string)//è®¾ç½®æ‰˜ç›˜å›¾æ ‡
 {
 	static BOOL added = FALSE;
 	NOTIFYICONDATA nid;
@@ -607,19 +653,19 @@ void CMyFanControlDlg::SetTray(PCSTR string)//ÉèÖÃÍĞÅÌÍ¼±ê
 	nid.hWnd = this->m_hWnd;
 	nid.uID = IDR_MAINFRAME;
 	nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-	nid.uCallbackMessage = WM_SHOWTASK;//×Ô¶¨ÒåµÄÏûÏ¢Ãû³Æ  
+	nid.uCallbackMessage = WM_SHOWTASK;//è‡ªå®šä¹‰çš„æ¶ˆæ¯åç§°  
 	nid.hIcon = LoadIcon(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDR_MAINFRAME));
 	if (string)
 	{
-		strcpy_s(nid.szTip, 128, string);//ĞÅÏ¢ÌáÊ¾ÄÚÈİ  
+		strcpy_s(nid.szTip, 128, string);//ä¿¡æ¯æç¤ºå†…å®¹  
 		if (!added)
 		{
-			Shell_NotifyIcon(NIM_ADD, &nid);//ÔÚÍĞÅÌÇøÌí¼ÓÍ¼±ê
+			Shell_NotifyIcon(NIM_ADD, &nid);//åœ¨æ‰˜ç›˜åŒºæ·»åŠ å›¾æ ‡
 			added = TRUE;
 		}
 		else
 		{
-			Shell_NotifyIcon(NIM_MODIFY, &nid);//ÔÚÍĞÅÌÇøÌí¼ÓÍ¼±ê
+			Shell_NotifyIcon(NIM_MODIFY, &nid);//åœ¨æ‰˜ç›˜åŒºæ·»åŠ å›¾æ ‡
 		}
 	}
 	else
@@ -629,29 +675,29 @@ void CMyFanControlDlg::SetTray(PCSTR string)//ÉèÖÃÍĞÅÌÍ¼±ê
 
 
 LRESULT CMyFanControlDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
-{//wParam½ÓÊÕµÄÊÇÍ¼±êµÄID£¬¶ølParam½ÓÊÕµÄÊÇÊó±êµÄĞĞÎª 
+{//wParamæ¥æ”¶çš„æ˜¯å›¾æ ‡çš„IDï¼Œè€ŒlParamæ¥æ”¶çš„æ˜¯é¼ æ ‡çš„è¡Œä¸º 
 	if (wParam != IDR_MAINFRAME)
 		return 1;
 	switch (lParam)
 	{
-	case WM_LBUTTONUP://×ó¼üµ¥»÷ÏÔÊ¾Ö÷½çÃæ
+	case WM_LBUTTONUP://å·¦é”®å•å‡»æ˜¾ç¤ºä¸»ç•Œé¢
 	{
 						  
 	}break;
-	case WM_RBUTTONUP://ÓÒ»÷µ¯³ö²Ëµ¥
+	case WM_RBUTTONUP://å³å‡»å¼¹å‡ºèœå•
 	{
 		LPPOINT lpoint = new tagPOINT;
-		::GetCursorPos(lpoint);//µÃµ½Êó±êÎ»ÖÃ
+		::GetCursorPos(lpoint);//å¾—åˆ°é¼ æ ‡ä½ç½®
 		CMenu menu;
 		menu.CreatePopupMenu();
 		if (m_bWindowVisible)
-			menu.AppendMenu(MFT_STRING, IDR_SHOW, "Òş²Ø");
+			menu.AppendMenu(MFT_STRING, IDR_SHOW, "éšè—");
 		else
-			menu.AppendMenu(MFT_STRING, IDR_SHOW, "ÏÔÊ¾");
+			menu.AppendMenu(MFT_STRING, IDR_SHOW, "æ˜¾ç¤º");
 		menu.AppendMenu(MFT_SEPARATOR);
-		menu.AppendMenu(MFT_STRING, IDR_EXIT, "ÍË³ö");
-		SetForegroundWindow();//²»¼Ó´ËĞĞÔÚ²Ëµ¥Íâµã»÷²Ëµ¥²»Ïú»Ù
-		int xx = TrackPopupMenu(menu, TPM_RETURNCMD, lpoint->x, lpoint->y, NULL, this->m_hWnd, NULL);//ÏÔÊ¾²Ëµ¥²¢»ñÈ¡Ñ¡ÏîID
+		menu.AppendMenu(MFT_STRING, IDR_EXIT, "é€€å‡º");
+		SetForegroundWindow();//ä¸åŠ æ­¤è¡Œåœ¨èœå•å¤–ç‚¹å‡»èœå•ä¸é”€æ¯
+		int xx = TrackPopupMenu(menu, TPM_RETURNCMD, lpoint->x, lpoint->y, NULL, this->m_hWnd, NULL);//æ˜¾ç¤ºèœå•å¹¶è·å–é€‰é¡¹ID
 		if (xx == IDR_SHOW)
 		{
 			OnCancel();
@@ -676,7 +722,7 @@ LRESULT CMyFanControlDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
 		if (LastUpdate != m_core.m_nLastUpdateTime)
 		{
 			char str[128];
-			sprintf_s(str, 128, "CPU£º%d¡æ£¬%d%%\nGPU£º%d¡æ£¬%d%%", m_core.m_nCurTemp[0], m_core.m_nCurDuty[0], m_core.m_nCurTemp[1], m_core.m_nCurDuty[1]);
+			sprintf_s(str, 128, "CPUï¼š%dâ„ƒï¼Œ%d%%\nGPUï¼š%dâ„ƒï¼Œ%d%%", m_core.m_nCurTemp[0], m_core.m_nCurDuty[0], m_core.m_nCurTemp[1], m_core.m_nCurDuty[1]);
 			SetTray(str);
 			LastUpdate = m_core.m_nLastUpdateTime;
 		}
@@ -688,7 +734,7 @@ LRESULT CMyFanControlDlg::OnShowTask(WPARAM wParam, LPARAM lParam)
 
 void CMyFanControlDlg::OnBnClickedCheckTakeover()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	int val = m_ctlTakeOver.GetCheck();
 	m_core.m_config.TakeOver = val;
 }
@@ -696,7 +742,7 @@ void CMyFanControlDlg::OnBnClickedCheckTakeover()
 
 void CMyFanControlDlg::OnBnClickedCheckForce()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	int val = m_ctlForcedCooling.GetCheck();
 	m_core.m_bForcedCooling = val;
 }
@@ -704,7 +750,7 @@ void CMyFanControlDlg::OnBnClickedCheckForce()
 
 void CMyFanControlDlg::OnBnClickedCheckLinear()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	int val = m_ctlLinear.GetCheck();
 	m_core.m_config.Linear = val;
 }
@@ -716,19 +762,19 @@ void CMyFanControlDlg::SetAdvancedMode(BOOL bAdvanced)
 	if (bAdvanced)
 	{
 		MoveWindow(rect.left, rect.top,  m_nWindowSize[0], m_nWindowSize[1], TRUE);
-		GetDlgItem(IDC_BUTTON_ADVANCED)->SetWindowTextA("¼òµ¥Ä£Ê½");
+		GetDlgItem(IDC_BUTTON_ADVANCED)->SetWindowTextA("ç®€å•æ¨¡å¼");
 	}
 	else
 	{
 		MoveWindow(rect.left, rect.top, m_nWindowSize[0] * 335 / 582, m_nWindowSize[1] * 283 / 463, FALSE);
-		GetDlgItem(IDC_BUTTON_ADVANCED)->SetWindowTextA("¸ß¼¶Ä£Ê½");
+		GetDlgItem(IDC_BUTTON_ADVANCED)->SetWindowTextA("é«˜çº§æ¨¡å¼");
 	}
 	m_bAdvancedMode = !m_bAdvancedMode;
 }
 
 void CMyFanControlDlg::OnBnClickedButtonAdvanced()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	SetAdvancedMode(!m_bAdvancedMode);
 }
 
@@ -739,7 +785,7 @@ void CMyFanControlDlg::OnBnClickedCheckAutorun()
 	int set_rv;
 	if (val)
 	{
-		int rv = MessageBox("ÇëÑ¡Ôñ¿ª»ú×Ô¶¯Æô¶¯·½Ê½£º\r\n\r\n°´\"ÊÇ\"£º×¢²á±íÆô¶¯Ïî×ÔÆô¶¯\r\n°´\"·ñ\"£ºÈÎÎñ¼Æ»®×ÔÆô¶¯£¨¹ÜÀíÔ±È¨ÏŞ£©\r\n°´\"È¡Ïû\"£º·ÅÆú²Ù×÷", "¿ª»ú×Ô¶¯Æô¶¯", MB_YESNOCANCEL);
+		int rv = MessageBox("è¯·é€‰æ‹©å¼€æœºè‡ªåŠ¨å¯åŠ¨æ–¹å¼ï¼š\r\n\r\næŒ‰\"æ˜¯\"ï¼šæ³¨å†Œè¡¨å¯åŠ¨é¡¹è‡ªå¯åŠ¨\r\næŒ‰\"å¦\"ï¼šä»»åŠ¡è®¡åˆ’è‡ªå¯åŠ¨ï¼ˆç®¡ç†å‘˜æƒé™ï¼‰\r\næŒ‰\"å–æ¶ˆ\"ï¼šæ”¾å¼ƒæ“ä½œ", "å¼€æœºè‡ªåŠ¨å¯åŠ¨", MB_YESNOCANCEL);
 		
 		if (IDYES == rv)
 		{
@@ -775,7 +821,7 @@ BOOL CMyFanControlDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
 	HKEY hKey;
 	if (RegOpenKey(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", &hKey) != ERROR_SUCCESS)
 	{
-		AfxMessageBox("ÎŞ·¨´ò¿ª×¢²á±í");
+		AfxMessageBox("æ— æ³•æ‰“å¼€æ³¨å†Œè¡¨");
 		return FALSE;
 	}
 	PCSTR strProduct = "LanTianFanMonitor";
@@ -792,7 +838,7 @@ BOOL CMyFanControlDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
 			if (RegSetValueEx(hKey, strProduct, 0, REG_SZ,
 				(unsigned char *)strPath.GetBuffer(strPath.GetLength()), nSize) != ERROR_SUCCESS)
 			{
-				AfxMessageBox("ÎŞ·¨Ğ´Èë×¢²á±íÆô¶¯Ïî£¬ĞèÒªÓÃ¹ÜÀíÔ±È¨ÏŞÔËĞĞ");
+				AfxMessageBox("æ— æ³•å†™å…¥æ³¨å†Œè¡¨å¯åŠ¨é¡¹ï¼Œéœ€è¦ç”¨ç®¡ç†å‘˜æƒé™è¿è¡Œ");
 				RegCloseKey(hKey);
 				return FALSE;
 			}
@@ -801,7 +847,7 @@ BOOL CMyFanControlDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
 		{
 			if (RegDeleteValue(hKey, strProduct) != ERROR_SUCCESS)
 			{
-				AfxMessageBox("ÎŞ·¨É¾³ı×¢²á±íÆô¶¯Ïî£¬ĞèÒªÓÃ¹ÜÀíÔ±È¨ÏŞÔËĞĞ");
+				AfxMessageBox("æ— æ³•åˆ é™¤æ³¨å†Œè¡¨å¯åŠ¨é¡¹ï¼Œéœ€è¦ç”¨ç®¡ç†å‘˜æƒé™è¿è¡Œ");
 				RegCloseKey(hKey);
 				return FALSE;
 			}
@@ -811,7 +857,7 @@ BOOL CMyFanControlDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
 	}
 	else
 	{
-		//¼ì²é×¢²á±íÏî
+		//æ£€æŸ¥æ³¨å†Œè¡¨é¡¹
 		BOOL		  bRet = FALSE;
 		unsigned long lSize = sizeof(bRet);
 		if (RegQueryValueEx(hKey, strProduct, NULL, NULL, NULL, &lSize) != ERROR_SUCCESS)
@@ -828,7 +874,7 @@ BOOL CMyFanControlDlg::SetAutorunReg(BOOL bWrite, BOOL bAutorun)
 
 BOOL CMyFanControlDlg::SetAutorunTask(BOOL bWrite, BOOL bAutorun)
 {
-	CString strTaskName = "À¶Ìì·çÉÈ¼à¿Ø";
+	CString strTaskName = "è“å¤©é£æ‰‡ç›‘æ§";
 	CString strPath = GetExePath() + "\\MyFanControl.exe";
 	CString strcmd;
 	CString strXmlPath = GetExePath() + "\\task.xml";
@@ -839,7 +885,7 @@ BOOL CMyFanControlDlg::SetAutorunTask(BOOL bWrite, BOOL bAutorun)
 			BOOL  rv = CMyFanControlDlg::CreateTaskXml(strXmlPath, strPath);
 			if (!rv)
 			{
-				AfxMessageBox("ÎŞ·¨´´½¨ÈÎÎñ¼Æ»®³ÌĞòxmlÎÄ¼ş");
+				AfxMessageBox("æ— æ³•åˆ›å»ºä»»åŠ¡è®¡åˆ’ç¨‹åºxmlæ–‡ä»¶");
 				return FALSE;
 			}
 			strcmd.Format("SCHTASKS /Create /F /XML %s /TN %s", strXmlPath, strTaskName);
@@ -857,14 +903,14 @@ BOOL CMyFanControlDlg::SetAutorunTask(BOOL bWrite, BOOL bAutorun)
 	CString rs = ExecuteCmd(strcmd);
 	if (bWrite && bAutorun)
 		remove(strXmlPath);
-	if (rs == "[Ö´ĞĞÊ§°Ü]" || rs.Find("¾Ü¾ø·ÃÎÊ") >= 0)
+	if (rs == "[æ‰§è¡Œå¤±è´¥]" || rs.Find("æ‹’ç»è®¿é—®") >= 0)
 	{
 		CString str;
-		str.Format("ÎŞ·¨%sÈÎÎñ¼Æ»®³ÌĞò£¬ĞèÒªÓÃ¹ÜÀíÔ±È¨ÏŞÔËĞĞ", bWrite ? (bAutorun ? "´´½¨" : "É¾³ı") : ("¶ÁÈ¡"));
+		str.Format("æ— æ³•%sä»»åŠ¡è®¡åˆ’ç¨‹åºï¼Œéœ€è¦ç”¨ç®¡ç†å‘˜æƒé™è¿è¡Œ", bWrite ? (bAutorun ? "åˆ›å»º" : "åˆ é™¤") : ("è¯»å–"));
 		AfxMessageBox(str);
 		return FALSE;
 	}
-	PCTSTR strFind = bWrite ? (bAutorun ? "³É¹¦´´½¨" : "³É¹¦É¾³ı") : strTaskName;
+	PCTSTR strFind = bWrite ? (bAutorun ? "æˆåŠŸåˆ›å»º" : "æˆåŠŸåˆ é™¤") : strTaskName;
 	if (rs.Find(strFind)>=0)
 		return TRUE;
 	return FALSE;
@@ -881,9 +927,9 @@ CString CMyFanControlDlg::ExecuteCmd(CString str)
 	if (!CreatePipe(&hRead, &hWrite, &sa, 0))
 	{
 #ifdef MY_DEBUG
-		AfxMessageBox("ÎŞ·¨´´½¨¹ÜµÀ");
+		AfxMessageBox("æ— æ³•åˆ›å»ºç®¡é“");
 #endif
-		return "[Ö´ĞĞÊ§°Ü]";
+		return "[æ‰§è¡Œå¤±è´¥]";
 	}
 	STARTUPINFO si = { sizeof(si) };
 	PROCESS_INFORMATION pi;
@@ -896,9 +942,9 @@ CString CMyFanControlDlg::ExecuteCmd(CString str)
 	if (!CreateProcess(NULL, cmdline, NULL, NULL, TRUE, NULL, NULL, NULL, &si, &pi))
 	{
 #ifdef MY_DEBUG
-		AfxMessageBox("ÎŞ·¨´´½¨ÃüÁîĞĞ½ø³Ì");
+		AfxMessageBox("æ— æ³•åˆ›å»ºå‘½ä»¤è¡Œè¿›ç¨‹");
 #endif
-		return "[Ö´ĞĞÊ§°Ü]";
+		return "[æ‰§è¡Œå¤±è´¥]";
 	}
 	CloseHandle(hWrite);
 
@@ -922,10 +968,10 @@ CString CMyFanControlDlg::ExecuteCmd(CString str)
 
 BOOL CMyFanControlDlg::CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath)
 {
-	//ÔËĞĞÈ¨ÏŞ
-	//×î¸ßÈ¨ÏŞ<RunLevel>HighestAvailable</RunLevel>\r\n
-	//ÆÕÍ¨È¨ÏŞ<RunLevel>LeastPrivilege</RunLevel>\r\n
-	//ÓÃ»§×é
+	//è¿è¡Œæƒé™
+	//æœ€é«˜æƒé™<RunLevel>HighestAvailable</RunLevel>\r\n
+	//æ™®é€šæƒé™<RunLevel>LeastPrivilege</RunLevel>\r\n
+	//ç”¨æˆ·ç»„
 	//SYSTEM<UserId>S-1-5-18</UserId>\r\n
 	//USERS<GroupId>S-1-5-32-545</GroupId>\r\n
 	PCSTR XmlStr = "\
@@ -934,7 +980,7 @@ BOOL CMyFanControlDlg::CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath)
   <RegistrationInfo>\r\n\
     <Date>2018-11-16T16:16:29</Date>\r\n\
     <Author>HQ</Author>\r\n\
-    <URI>\\À¶Ìì·çÉÈ¼à¿Ø</URI>\r\n\
+    <URI>\\è“å¤©é£æ‰‡ç›‘æ§</URI>\r\n\
   </RegistrationInfo>\r\n\
   <Triggers>\r\n\
     <LogonTrigger>\r\n\
@@ -986,7 +1032,7 @@ BOOL CMyFanControlDlg::CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath)
 
 void CMyFanControlDlg::OnBnClickedCheckLockGpuFrequancy()
 {
-	// TODO:  ÔÚ´ËÌí¼Ó¿Ø¼şÍ¨Öª´¦Àí³ÌĞò´úÂë
+	// TODO:  åœ¨æ­¤æ·»åŠ æ§ä»¶é€šçŸ¥å¤„ç†ç¨‹åºä»£ç 
 	int val = m_ctlLockGpuFrequancy.GetCheck();
 	if (val)
 	{
@@ -1006,7 +1052,7 @@ BOOL CMyFanControlDlg::CheckInputFrequency(int nFrequency)
 	if (nFrequency < 0 || nFrequency > m_core.m_GpuInfo.m_nMaxFrequency)
 	{
 		char str2[256];
-		sprintf_s(str2, 256, "GPUÆµÂÊÏŞÖÆ±ØĞëÎª0-%d£¬Ä¬ÈÏÆµÂÊÎª%d£¬0ÎªÄ¬ÈÏÆµÂÊ", m_core.m_GpuInfo.m_nMaxFrequency, m_core.m_GpuInfo.m_nStandardFrequency);
+		sprintf_s(str2, 256, "GPUé¢‘ç‡é™åˆ¶å¿…é¡»ä¸º0-%dï¼Œé»˜è®¤é¢‘ç‡ä¸º%dï¼Œ0ä¸ºé»˜è®¤é¢‘ç‡", m_core.m_GpuInfo.m_nMaxFrequency, m_core.m_GpuInfo.m_nStandardFrequency);
 		AfxMessageBox(str2);
 		return FALSE;
 	}
@@ -1015,8 +1061,8 @@ BOOL CMyFanControlDlg::CheckInputFrequency(int nFrequency)
 		if (nFrequency > m_core.m_GpuInfo.m_nStandardFrequency)
 		{
 			char str2[256];
-			sprintf_s(str2, 256, "GPUÄ¬ÈÏÆµÂÊÎª%d£¬³¬Æµ»á½µµÍÏµÍ³ÎÈ¶¨ĞÔ£¬²¢»áÔö¼Ó·¢ÈÈÁ¿¡£\n×¢Òâ£ºÓÉÓÚ¹¦ÂÊÏŞÖÆ£¬¿ÉÄÜÎŞ·¨´ïµ½Éè¶¨µÄÆµÂÊ¡£\nÊÇ·ñÈ·ÈÏÒª³¬Æµ£¿", m_core.m_GpuInfo.m_nStandardFrequency);
-			int rv = MessageBox(str2, "È·ÈÏÒª³¬Æµ£¿", MB_YESNO);
+			sprintf_s(str2, 256, "GPUé»˜è®¤é¢‘ç‡ä¸º%dï¼Œè¶…é¢‘ä¼šé™ä½ç³»ç»Ÿç¨³å®šæ€§ï¼Œå¹¶ä¼šå¢åŠ å‘çƒ­é‡ã€‚\næ³¨æ„ï¼šç”±äºåŠŸç‡é™åˆ¶ï¼Œå¯èƒ½æ— æ³•è¾¾åˆ°è®¾å®šçš„é¢‘ç‡ã€‚\næ˜¯å¦ç¡®è®¤è¦è¶…é¢‘ï¼Ÿ", m_core.m_GpuInfo.m_nStandardFrequency);
+			int rv = MessageBox(str2, "ç¡®è®¤è¦è¶…é¢‘ï¼Ÿ", MB_YESNO);
 
 			if (IDYES == rv)
 			{
