@@ -7,6 +7,27 @@
 1. 安装NTPortDrvSetup,压缩包中有。
 2. 管理员权限启动MyFanControl，非管理员权限启动无法设置开机自启。
 
+## 本 fork 的改动
+- 修复睡眠唤醒后偶尔提示“检测到工作线程卡死”并退出的问题：原先用当天时分秒安排更新，
+  唤醒时刻早于睡眠时刻（如 23 点睡眠、次日 8 点唤醒）或系统对时回调后会长时间不更新，被看门狗误判
+- 睡眠前把风扇交还 EC 自动控制，唤醒后立即恢复接管
+- 不再强制结束工作线程，线程长时间无响应时由用户选择是否退出
+- 新增日志 `MyFanControl.log`（程序目录下），带 `/verbose` 参数启动时记录每轮温度和转速
+- 工程升级到 VS2022，静态链接 MFC，只需一个 exe，不再需要 VC++ 2013 运行库
+
+### 安装
+1. 从[原作者的 Release](https://github.com/xl-Synapse/MyFanControl/releases) 下载 `MyFanControl-v1.0.zip`，
+   解压并安装其中的 NTPortDrvSetup
+2. 从本仓库的 Release（或 Actions 编译产物）下载 `MyFanControl.exe`，覆盖解压目录中的同名文件。
+   原有的 `MyFanControl.cfg` 配置可以继续使用
+
+### 编译
+需要 Visual Studio 2022（或 Build Tools）的“使用 C++ 的桌面开发”和“C++ MFC”组件：
+```
+msbuild MyFanControl.sln /p:Configuration=Release /p:Platform=Win32
+```
+源码为 UTF-8，编译选项指定窄字符串按 GBK 生成（程序使用多字节字符集）。
+
 ## 原贴说明
 1. 输入数值后要点保存才能生效。
 2. 程序退出时会还原所有更改，包括还原风扇控制策略到原厂默认、解除GPU限频。
