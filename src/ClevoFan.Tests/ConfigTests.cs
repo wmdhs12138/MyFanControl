@@ -35,6 +35,49 @@ public class ConfigTests : IDisposable
         Assert.False(config.Linear);
         Assert.True(config.TakeOver);
         Assert.Equal(50, config.ForceCoolingTemp);
+        //原程序限频开关关闭：不限频，忽略残留的频率值
+        Assert.False(config.GpuClockLimitEnabled);
+        Assert.Equal(0, config.GpuMaxClockMHz);
+    }
+
+    [Fact]
+    public void LegacyConfig_导入GPU限频()
+    {
+        int[] curve = [95, 80, 70, 55, 35, 30, 25, 18, 18, 18];
+        var config = LegacyConfig.Parse(LegacyBytes([.. curve, .. curve, 3, 2, 0, 1, 50, 1, 1200]));
+        Assert.True(config.GpuClockLimitEnabled);
+        Assert.Equal(1200, config.GpuMaxClockMHz);
+    }
+
+    [Fact]
+    public void LegacyConfig_限频开启但频率为0表示不限频()
+    {
+        int[] curve = [95, 80, 70, 55, 35, 30, 25, 18, 18, 18];
+        Assert.False(LegacyConfig.Parse(LegacyBytes([.. curve, .. curve, 3, 2, 0, 1, 50, 1, 0])).GpuClockLimitEnabled);
+    }
+
+    [Fact]
+    public void ConfigStore_读取版本1配置_新字段取默认值并以当前版本保存()
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "v1.json");
+        File.WriteAllText(path, """{ "Version": 1, "TakeOver": true }""");
+        var store = new ConfigStore(path);
+        var config = store.Load()!;
+        Assert.True(config.TakeOver);
+        Assert.False(config.GpuClockLimitEnabled);
+        store.Save(config);
+        Assert.Equal(FanConfig.CurrentVersion, store.Load()!.Version);
+    }
+
+    [Theory]
+    [InlineData(true, 99, false)]
+    [InlineData(true, 900, true)]
+    [InlineData(false, 0, true)]
+    public void GPU限频配置校验(bool enabled, int mhz, bool valid)
+    {
+        var config = new FanConfig { GpuClockLimitEnabled = enabled, GpuMaxClockMHz = mhz };
+        Assert.Equal(valid, config.Validate().Count == 0);
     }
 
     [Fact]

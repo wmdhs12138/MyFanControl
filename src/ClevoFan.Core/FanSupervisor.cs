@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 namespace ClevoFan.Core;
 
 /// <summary>
-/// 控制循环和安全状态：睡眠时交还 EC、检测旧版程序、出错时交还 EC、配置更新。
+/// 控制循环和安全状态：睡眠时交还 EC、检测旧版程序、出错时交还 EC、配置更新、GPU 限频。
 /// 所有硬件访问都在 <c>_gate</c> 锁内串行执行，电源事件、配置更新可以从任意线程调用。
 /// </summary>
 public sealed class FanSupervisor
@@ -22,12 +22,16 @@ public sealed class FanSupervisor
     private long _suspendedAt;
     private bool _blockedReported;
     private bool _errorReported;
+    private bool _gpuErrorReported;
     private FanStatus _status;
+    private readonly GpuLimiter? _gpu;
+    private readonly string? _gpuUnavailable;
 
     /// <param name="legacyRunning">旧版 MyFanControl 是否在运行。</param>
     /// <param name="awakeMs">不含睡眠时间的单调时钟（毫秒）。</param>
+    /// <param name="gpu">GPU 限频；为 null 表示没有可用的 NVIDIA GPU，原因见 <paramref name="gpuUnavailable"/>。</param>
     public FanSupervisor(FanController controller, FanConfig config, ConfigStore? store, ILogger logger,
-        Func<bool> legacyRunning, Func<long> awakeMs)
+        Func<bool> legacyRunning, Func<long> awakeMs, GpuLimiter? gpu = null, string? gpuUnavailable = null)
     {
         _controller = controller;
         _controller.Config = config.Clone();
@@ -35,6 +39,8 @@ public sealed class FanSupervisor
         _logger = logger;
         _legacyRunning = legacyRunning;
         _awakeMs = awakeMs;
+        _gpu = gpu;
+        _gpuUnavailable = gpuUnavailable;
         _status = controller.Status(FanState.Starting);
     }
 
@@ -77,7 +83,10 @@ public sealed class FanSupervisor
         finally
         {
             lock (_gate)
+            {
                 TryHandBack("停止时");
+                _gpu?.Stop();
+            }
             _logger.LogInformation("控制循环结束");
         }
     }
@@ -98,6 +107,7 @@ public sealed class FanSupervisor
                 _logger.LogWarning("睡眠通知后醒着超过 {Minutes} 分钟仍未收到唤醒通知，自动恢复控制", SuspendTimeout.TotalMinutes);
             }
 
+            //旧版程序启动时也会设置 GPU 频率，运行期间同样不操作 GPU
             if (_legacyRunning())
             {
                 if (!_blockedReported)
@@ -124,9 +134,10 @@ public sealed class FanSupervisor
                 _logger.LogInformation("旧版 MyFanControl 已退出，恢复控制");
             }
 
+            FanStatus status;
             try
             {
-                SetStatus(_controller.Tick());
+                status = _controller.Tick();
                 if (_errorReported)
                 {
                     _errorReported = false;
@@ -141,7 +152,36 @@ public sealed class FanSupervisor
                     _logger.LogError(e, "访问硬件出错");
                 }
                 TryHandBack("出错后");
-                SetStatus(_controller.Status(FanState.Error, message: e.Message));
+                status = _controller.Status(FanState.Error, message: e.Message);
+            }
+            //GPU 限频与风扇控制互不影响
+            TickGpu();
+            SetStatus(status);
+        }
+    }
+
+    /// <summary>读取 GPU 实时频率和利用率；独显未通电时不读取。没有可用 GPU 时返回 null。</summary>
+    public GpuLiveStatus? ReadGpuLive()
+    {
+        lock (_gate)
+            return _gpu?.ReadLive();
+    }
+
+    private void TickGpu()
+    {
+        if (_gpu is null)
+            return;
+        try
+        {
+            _gpu.Tick(_controller.Config);
+            _gpuErrorReported = false;
+        }
+        catch (Exception e)
+        {
+            if (!_gpuErrorReported)
+            {
+                _gpuErrorReported = true;
+                _logger.LogError(e, "GPU 限频出错");
             }
         }
     }
@@ -169,6 +209,7 @@ public sealed class FanSupervisor
             if (!_suspended)
                 return;
             _suspended = false;
+            _gpu?.OnResume();
             _logger.LogInformation("系统已唤醒，恢复控制");
         }
         Wake();
@@ -196,8 +237,9 @@ public sealed class FanSupervisor
         {
             _store?.Save(config);
             _controller.Config = config.Clone();
-            _logger.LogInformation("配置已更新：接管 {TakeOver}，线性 {Linear}，CPU [{Cpu}]，GPU [{Gpu}]",
-                config.TakeOver, config.Linear, string.Join(",", config.CpuCurve), string.Join(",", config.GpuCurve));
+            _logger.LogInformation("配置已更新：接管 {TakeOver}，线性 {Linear}，CPU [{Cpu}]，GPU [{Gpu}]，GPU 限频 {GpuLimit}",
+                config.TakeOver, config.Linear, string.Join(",", config.CpuCurve), string.Join(",", config.GpuCurve),
+                config.GpuClockLimitEnabled ? config.GpuMaxClockMHz + " MHz" : "关闭");
         }
         Wake();
     }
@@ -228,5 +270,6 @@ public sealed class FanSupervisor
         }
     }
 
-    private void SetStatus(FanStatus status) => Volatile.Write(ref _status, status);
+    private void SetStatus(FanStatus status) =>
+        Volatile.Write(ref _status, _gpu?.Describe(status) ?? status with { GpuMessage = _gpuUnavailable });
 }

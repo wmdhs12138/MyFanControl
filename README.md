@@ -39,7 +39,8 @@ msbuild MyFanControl.sln /p:Configuration=Release /p:Platform=Win32
 - **后台服务**：开机即运行，不需要登录或 UAC 确认；托盘程序以普通权限运行，关闭托盘不影响控温
 - **失效保护**：睡眠前、服务停止时、温度读数异常（低于 10℃ 或高于 110℃）时、访问硬件出错时交还 EC 自动控制；
   启动时先交还一次，避免上次异常退出后停在手动模式；检测到原程序正在运行时暂停接管，避免两个程序同时控制
-- 暂不支持 GPU 限频和 GPU 频率、使用率显示
+- **GPU 限频**：通过 NVIDIA 驱动自带的 NVML 限制独显最高频率（只限制，不再提供原程序的超频）。只在独显通电时操作，
+  不会为此唤醒双显卡笔记本的独显；独显重新通电、系统唤醒后自动重新应用，服务停止时解除。设置窗口打开时显示实时频率和利用率
 
 已在 NH5x_7xRDx（Insyde BIOS，EC 07.05HE1）上测试。其他 Clevo 机型的 BIOS 若没有这个 WMI 接口，服务无法启动，原因记录在日志中。
 
@@ -60,6 +61,8 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -ImportLegacy "D:\MyFanCont
 dotnet test src/ClevoFan.slnx                       # 单元测试（模拟硬件）
 tools\ecprobe\build.cmd                             # 编译 wmiprobe / ecprobe 硬件探针
 tests\integration\service_test.ps1 -SourceDir ...   # 真机集成测试（管理员）
+dotnet build tools\gpuload -c Release -o tools\gpuload\bin\out   # GPU 满载工具（OpenCL）
+tests\integration\gpu_limit_test.ps1                # 真机 GPU 限频测试（管理员）
 ```
 
 ## 原贴说明

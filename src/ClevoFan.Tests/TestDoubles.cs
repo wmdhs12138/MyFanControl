@@ -59,6 +59,41 @@ internal sealed class FakeBackend : IFanBackend
     }
 }
 
+/// <summary>模拟 GPU：频率范围 300-2100 MHz，记录所有操作。</summary>
+internal sealed class FakeGpu : IGpuBackend
+{
+    public bool PoweredOn { get; set; } = true;
+    public Exception? ThrowOnLock { get; set; }
+    public List<string> Calls { get; } = [];
+
+    public string Name => "Fake GPU";
+    public int MinClockMHz => 300;
+    public int MaxClockMHz => 2100;
+
+    public bool IsPoweredOn() => PoweredOn;
+
+    /// <summary>模拟按 15 MHz 档位向下取整。</summary>
+    public int LockMaxClock(int maxMHz)
+    {
+        if (ThrowOnLock is { } e)
+            throw e;
+        Calls.Add($"Lock {maxMHz}");
+        return maxMHz - (maxMHz - MinClockMHz) % 15;
+    }
+
+    public void ResetClocks() => Calls.Add("Reset");
+
+    public (int ClockMHz, int UtilizationPercent) ReadLive()
+    {
+        Calls.Add("ReadLive");
+        return (900, 50);
+    }
+
+    public void Dispose()
+    {
+    }
+}
+
 internal sealed class ListLogger : ILogger
 {
     public List<(LogLevel Level, string Message)> Entries { get; } = [];

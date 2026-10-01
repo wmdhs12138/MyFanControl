@@ -17,7 +17,7 @@ public enum FanState
 }
 
 /// <summary>服务向托盘程序报告的状态。</summary>
-public sealed class FanStatus
+public sealed record FanStatus
 {
     public DateTimeOffset Time { get; init; } = DateTimeOffset.Now;
     public FanState State { get; init; } = FanState.Starting;
@@ -38,4 +38,16 @@ public sealed class FanStatus
     public int CpuLevel { get; init; }
     public int GpuLevel { get; init; }
     public bool ForcedCooling { get; init; }
+
+    /// <summary>显卡名称；为空表示没有可用的 NVIDIA GPU（原因见 <see cref="GpuMessage"/>）。</summary>
+    public string? GpuName { get; init; }
+    public int? GpuMinClockMHz { get; init; }
+    public int? GpuMaxClockMHz { get; init; }
+
+    /// <summary>当前生效的 GPU 频率上限，为空表示未限频。</summary>
+    public int? GpuClockLimitMHz { get; init; }
+    public string? GpuMessage { get; init; }
 }
+
+/// <summary>GPU 实时状态。独显未通电时不读取（读取会唤醒它）。</summary>
+public sealed record GpuLiveStatus(bool PoweredOn, int? ClockMHz, int? UtilizationPercent);
