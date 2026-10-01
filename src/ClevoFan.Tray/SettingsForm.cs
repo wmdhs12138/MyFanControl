@@ -5,6 +5,10 @@ namespace ClevoFan.Tray;
 internal sealed class SettingsForm : Form
 {
     private readonly NumericUpDown[,] _curve = new NumericUpDown[2, FanConfig.LevelCount];
+    private readonly CurveEditor _editor = new() { Dock = DockStyle.Fill, Margin = new Padding(3, 4, 3, 4) };
+    private readonly RadioButton _editCpu = new() { Text = "编辑 CPU 曲线", AutoSize = true, Checked = true };
+    private readonly RadioButton _editGpu = new() { Text = "编辑 GPU 曲线", AutoSize = true };
+    private bool _syncing;
     private readonly CheckBox _takeOver = new() { Text = "接管风扇控制（关闭时由 EC 自动控制）", AutoSize = true };
     private readonly CheckBox _linear = new() { Text = "线性控制（相邻两档之间平滑过渡）", AutoSize = true };
     private readonly NumericUpDown _transition = Number(0, 10);
@@ -52,6 +56,10 @@ internal sealed class SettingsForm : Form
         root.Controls.Add(_gpuStatus);
         root.Controls.Add(_state);
         root.Controls.Add(Header("风扇曲线（负载 %）"));
+        var editBar = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0) };
+        editBar.Controls.AddRange([_editCpu, _editGpu, Cell("拖动圆点调整；方向键微调，按住 Shift 每次 5%")]);
+        root.Controls.Add(editBar);
+        root.Controls.Add(_editor);
         root.Controls.Add(BuildCurveTable());
         root.Controls.Add(Header("选项"));
         root.Controls.Add(BuildOptions());
@@ -78,6 +86,22 @@ internal sealed class SettingsForm : Form
         DpiChanged += (_, _) => BeginInvoke(FitToContent);
         _liveTimer.Tick += async (_, _) => await RefreshGpuLiveAsync();
         _gpuLimit.CheckedChanged += (_, _) => _gpuMax.Enabled = _gpuAvailable && _gpuLimit.Checked;
+        _linear.CheckedChanged += (_, _) => _editor.Linear = _linear.Checked;
+        _editCpu.CheckedChanged += (_, _) => _editor.ActiveFan = _editCpu.Checked ? 0 : 1;
+        _editor.CurveChanged += fan =>
+        {
+            //图上拖动后同步到数字框
+            _syncing = true;
+            try
+            {
+                for (int i = 0; i < FanConfig.LevelCount; i++)
+                    _curve[fan, i].Value = _editor.Curve(fan)[i];
+            }
+            finally
+            {
+                _syncing = false;
+            }
+        };
         //读到服务端配置之前显示默认值，并禁止保存，避免把没读到的配置写回去
         Fill(new FanConfig());
         _save.Enabled = false;
@@ -103,6 +127,7 @@ internal sealed class SettingsForm : Form
         _cpuStatus.Text = StatusText.Fan("CPU", s.CpuTemp, s.CpuDutyPercent, s.CpuRpm, s.CpuTargetPercent);
         _gpuStatus.Text = StatusText.Fan("GPU", s.GpuTemp, s.GpuDutyPercent, s.GpuRpm, s.GpuTargetPercent);
         _state.Text = "状态：" + StatusText.State(s);
+        _editor.SetTemperatures(s.CpuTemp > 0 ? s.CpuTemp : null, s.GpuTemp > 0 ? s.GpuTemp : null);
         ShowGpu(s);
     }
 
@@ -180,6 +205,12 @@ internal sealed class SettingsForm : Form
                 _curve[fan, i] = Number(0, 100);
                 _curve[fan, i].Width = 52;
                 table.Controls.Add(_curve[fan, i], i + 1, fan + 1);
+                int f = fan, level = i;
+                _curve[fan, i].ValueChanged += (_, _) =>
+                {
+                    if (!_syncing)
+                        _editor.SetCurve(f, level, (int)_curve[f, level].Value);
+                };
             }
         }
         return table;
