@@ -331,7 +331,10 @@ CCore::CCore()
 		m_nSetDutyLevel[i] = 0;//设置的转速挡位，最低速档为1，最高速档为10
 		m_nCurDuty[i]=0;//当前负载
 		m_nCurRPM[i]=0;//当前转速
+		m_nRawTemp[i] = 0;
 	}
+	m_bReadingValid = TRUE;
+	m_bInvalidReported = FALSE;
 	m_bUpdateRPM=0;//是否更新转速，如果为0，只更新风扇温度和负载
 	m_nLastUpdateTime = 0;
 	m_bForcedCooling = FALSE;
@@ -477,9 +480,9 @@ void CCore::Run()
 				if (pszReadingTag || m_bVerbose)
 				{
 					//m_nCurDuty是本轮设置转速之前从EC读到的值
-					LogWrite("%s读数（本轮接管前）：CPU %d℃ 负载%d%%，GPU %d℃ 负载%d%%，接管控制=%d，设定负载%d%%/%d%%",
+					LogWrite("%s读数（本轮接管前）：CPU %d℃ 负载%d%%，GPU %d℃ 负载%d%%，接管控制=%d，设定负载%d%%/%d%%，读数有效=%d",
 						pszReadingTag ? pszReadingTag : "", m_nCurTemp[0], m_nCurDuty[0], m_nCurTemp[1], m_nCurDuty[1],
-						m_config.TakeOver, m_nSetDuty[0], m_nSetDuty[1]);
+						m_config.TakeOver, m_nSetDuty[0], m_nSetDuty[1], m_bReadingValid);
 					pszReadingTag = NULL;
 				}
 				m_nLastUpdateTime = (int)GetTickCount();//更新时间，界面只判断其是否变化
@@ -526,6 +529,22 @@ void CCore::ReportError(const CString &str)
 void CCore::Work()
 {
 	Update();
+	if (!m_bReadingValid)
+	{
+		//温度读数无效时不能据此调节风扇（否则会按低温把风扇降到最低档），交还EC自动控制，读数恢复后再接管
+		if (!m_bInvalidReported)
+		{
+			m_bInvalidReported = TRUE;
+			LogWrite("温度读数异常（CPU %d℃，GPU %d℃），交还EC自动控制", m_nRawTemp[0], m_nRawTemp[1]);
+		}
+		ResetFan();
+		return;
+	}
+	if (m_bInvalidReported)
+	{
+		m_bInvalidReported = FALSE;
+		LogWrite("温度读数恢复正常（CPU %d℃，GPU %d℃）", m_nCurTemp[0], m_nCurTemp[1]);
+	}
 	if (m_bForcedCooling)//强制冷却
 	{
 		if (m_nCurTemp[0] >= m_config.ForceTemp || m_nCurTemp[1] >= m_config.ForceTemp)
@@ -561,14 +580,22 @@ void CCore::Work()
 		m_GpuInfo.m_strLastError.Empty();
 	}
 }
+//EC偶尔会连续数秒返回1℃、负载0的异常读数（见docs/ec-protocol.md），超出此范围的温度视为无效
+static const int MIN_VALID_TEMP = 10;
+static const int MAX_VALID_TEMP = 110;
+static BOOL IsValidTemp(int t)
+{
+	return t >= MIN_VALID_TEMP && t <= MAX_VALID_TEMP;
+}
 void CCore::Update()
 {
 	ECData data;
 	int TempErr = 0;
+	m_bReadingValid = TRUE;
 	for (int i = 0; i < 2; i++)
 	{
 		data = m_pfnGetTempFanDuty(i+1);
-		if (abs(data.Remote - this->m_nCurTemp[i]) > 30)
+		if (abs(data.Remote - this->m_nCurTemp[i]) > 30 || !IsValidTemp(data.Remote))
 		{
 			//AfxMessageBox("获取温度有误");
 			//温度获取可能有误，重试一次
@@ -578,6 +605,14 @@ void CCore::Update()
 				i--;
 				continue;//重试一次
 			}
+		}
+		TempErr = 0;
+		m_nRawTemp[i] = data.Remote;
+		if (!IsValidTemp(data.Remote))
+		{
+			//重试后仍无效：保留上一次的有效温度，本轮不调节风扇
+			m_bReadingValid = FALSE;
+			continue;
 		}
 		this->m_nLastTemp[i] = this->m_nCurTemp[i];
 		this->m_nCurTemp[i] = data.Remote;
@@ -595,7 +630,6 @@ void CCore::Update()
 		{
 			this->m_nCurRPM[i] = -1;
 		}
-		TempErr = 0;
 	}
 	if (m_bUpdateRPM)
 		m_GpuInfo.Update();
