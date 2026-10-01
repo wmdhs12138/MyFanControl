@@ -1,0 +1,12 @@
+# 编译输出
+Debug/
+Release/
+*/Debug/
+*/Release/
+
+# Visual Studio 本地文件
+.vs/
+*.user
+*.VC.db
+*.VC.opendb
+ipch/

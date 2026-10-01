@@ -1,5 +1,5 @@
 
-// MyFanControlDlg.h : Í·ÎÄ¼ş
+// MyFanControlDlg.h : å¤´æ–‡ä»¶
 //
 
 #pragma once
@@ -8,50 +8,50 @@
 #include "afxcmn.h"
 #include "afxwin.h"
 
-//#define MY_DEBUG//µ÷ÊÔÄ£Ê½£¬´ËÄ£Ê½ÏÂ£¬²»»áÒÔÒş²ØÄ£Ê½Æô¶¯
+//#define MY_DEBUG//è°ƒè¯•æ¨¡å¼ï¼Œæ­¤æ¨¡å¼ä¸‹ï¼Œä¸ä¼šä»¥éšè—æ¨¡å¼å¯åŠ¨
 
 
-// CMyFanControlDlg ¶Ô»°¿ò
+// CMyFanControlDlg å¯¹è¯æ¡†
 class CMyFanControlDlg : public CDialogEx
 {
-// ¹¹Ôì
+// æ„é€ 
 public:
-	CMyFanControlDlg(CWnd* pParent = NULL);	// ±ê×¼¹¹Ôìº¯Êı
+	CMyFanControlDlg(CWnd* pParent = NULL);	// æ ‡å‡†æ„é€ å‡½æ•°
 	~CMyFanControlDlg();
 
-// ¶Ô»°¿òÊı¾İ
+// å¯¹è¯æ¡†æ•°æ®
 	enum { IDD = IDD_MYFANCONTROL_DIALOG };
 
 	protected:
-	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV Ö§³Ö
+	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV æ”¯æŒ
 
 
-// ÊµÏÖ
+// å®ç°
 protected:
 	HICON m_hIcon;
 
-	// Éú³ÉµÄÏûÏ¢Ó³Éäº¯Êı
+	// ç”Ÿæˆçš„æ¶ˆæ¯æ˜ å°„å‡½æ•°
 	virtual BOOL OnInitDialog();
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg void OnPaint();
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
 public:
-	BOOL m_bForceHideWindow;//Æô¶¯Ê±Ç¿ÖÆÒş²Ø´°¿Ú
-	CCore m_core;//ÎÂ¶È¿ØÖÆÄÚºË
-	HANDLE m_hCoreThread;//ÄÚºËÏß³Ì
-	int m_nLastCoreUpdateTime;//ÄÚºË×îºó¸üĞÂÊ±¼ä
-	CListCtrl m_ctlStatus;// ×´Ì¬±í¿Ø¼ş
+	BOOL m_bForceHideWindow;//å¯åŠ¨æ—¶å¼ºåˆ¶éšè—çª—å£
+	CCore m_core;//æ¸©åº¦æ§åˆ¶å†…æ ¸
+	HANDLE m_hCoreThread;//å†…æ ¸çº¿ç¨‹
+	int m_nLastCoreUpdateTime;//å†…æ ¸æœ€åæ›´æ–°æ—¶é—´
+	CListCtrl m_ctlStatus;// çŠ¶æ€è¡¨æ§ä»¶
 	CButton m_ctlTakeOver;
 	CButton m_ctlForcedCooling;
 	CButton m_ctlLinear;
 	CEdit m_ctlInterval;
 	CEdit m_ctlTransition;
-	CEdit m_ctlForceTemp;//Ç¿ÖÆÀäÈ´ÖÁÎÂ¶È
-	int m_nDutyEditCtlID[2][10];//×ªËÙÉèÖÃ¿Ø¼şµÄid
-	BOOL m_bWindowVisible;//´°¿ÚÊÇ·ñÏÔÊ¾
-	int m_nWindowSize[2];//ÍêÕû´°¿Ú³ß´ç
-	BOOL m_bAdvancedMode;//¸ß¼¶Ä£Ê½
+	CEdit m_ctlForceTemp;//å¼ºåˆ¶å†·å´è‡³æ¸©åº¦
+	int m_nDutyEditCtlID[2][10];//è½¬é€Ÿè®¾ç½®æ§ä»¶çš„id
+	BOOL m_bWindowVisible;//çª—å£æ˜¯å¦æ˜¾ç¤º
+	int m_nWindowSize[2];//å®Œæ•´çª—å£å°ºå¯¸
+	BOOL m_bAdvancedMode;//é«˜çº§æ¨¡å¼
 
 public:
 	static DWORD WINAPI CoreThread(LPVOID lParam);
@@ -59,26 +59,26 @@ public:
 	virtual void OnOK();
 	virtual void OnCancel();
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
-	void UpdateGui(BOOL bFull);//¸üĞÂ½çÃæ£¬bFullÎªÊÇ·ñÍêÕû¸üĞÂ£¬°üÀ¨×Ô¶¨Òå×ªËÙÉèÖÃ£¬Èç¹ûÎª·ñ£¬Ö»¸üĞÂ·çÉÈ×´Ì¬
-	BOOL CheckAndSave();//¼ì²é±íµ¥ÌîĞ´ÊÇ·ñÕıÈ·£¬Èç¹ûÕıÈ·Ôò±£´æ·µ»ØTRUE£¬²»ÕıÈ·Ôò·µ»ØFALSE
+	void UpdateGui(BOOL bFull);//æ›´æ–°ç•Œé¢ï¼ŒbFullä¸ºæ˜¯å¦å®Œæ•´æ›´æ–°ï¼ŒåŒ…æ‹¬è‡ªå®šä¹‰è½¬é€Ÿè®¾ç½®ï¼Œå¦‚æœä¸ºå¦ï¼Œåªæ›´æ–°é£æ‰‡çŠ¶æ€
+	BOOL CheckAndSave();//æ£€æŸ¥è¡¨å•å¡«å†™æ˜¯å¦æ­£ç¡®ï¼Œå¦‚æœæ­£ç¡®åˆ™ä¿å­˜è¿”å›TRUEï¼Œä¸æ­£ç¡®åˆ™è¿”å›FALSE
 	afx_msg void OnBnClickedButtonSave();
 	afx_msg void OnBnClickedButtonReset();
 	afx_msg void OnBnClickedButtonLoad();
-	void SetTray(PCSTR string);//ÉèÖÃÍĞÅÌ£¬Êó±ê·ÅÖÃÏÔÊ¾µÄÄÚÈİ£¬Èç¹û´«ÈëNULL£¬ÔòÉ¾³ıÍ¼±ê
-	afx_msg LRESULT OnShowTask(WPARAM wParam, LPARAM lParam);//ÏµÍ³ÍĞÅÌÊÂ¼şº¯Êı
+	void SetTray(PCSTR string);//è®¾ç½®æ‰˜ç›˜ï¼Œé¼ æ ‡æ”¾ç½®æ˜¾ç¤ºçš„å†…å®¹ï¼Œå¦‚æœä¼ å…¥NULLï¼Œåˆ™åˆ é™¤å›¾æ ‡
+	afx_msg LRESULT OnShowTask(WPARAM wParam, LPARAM lParam);//ç³»ç»Ÿæ‰˜ç›˜äº‹ä»¶å‡½æ•°
 	afx_msg void OnBnClickedCheckTakeover();
 	afx_msg void OnBnClickedCheckForce();
 	afx_msg void OnBnClickedCheckLinear();
-	void SetAdvancedMode(BOOL bAdvanced);//ÉèÖÃ¸ß¼¶Ä£Ê½
+	void SetAdvancedMode(BOOL bAdvanced);//è®¾ç½®é«˜çº§æ¨¡å¼
 	afx_msg void OnBnClickedButtonAdvanced();
 	CButton m_ctlAutorun;
 	afx_msg void OnBnClickedCheckAutorun();
-	BOOL SetAutorunReg(BOOL bWrite = FALSE, BOOL bAutorun = FALSE);//ÉèÖÃ×Ô¶¯ÔËĞĞµÄ×¢²á±íÏî£¬bWriteĞ´Èë»ò¶ÁÈ¡£¬bAutorunÊÇĞ´ÈëÊÇĞ´ÈëÖ´ĞĞ»¹ÊÇ²»Ö´ĞĞ
-	BOOL SetAutorunTask(BOOL bWrite = FALSE, BOOL bAutorun = FALSE);//ÉèÖÃ×Ô¶¯ÔËĞĞµÄ¼Æ»®ÈÎÎñ£¬bWriteĞ´Èë»ò¶ÁÈ¡£¬bAutorunÊÇĞ´ÈëÊÇĞ´ÈëÖ´ĞĞ»¹ÊÇ²»Ö´ĞĞ
-	CString ExecuteCmd(CString str);//´´½¨ĞÂ½ø³ÌÖ´ĞĞÃüÁîĞĞ´úÂë
-	BOOL CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath);//´´½¨¼Æ»®ÈÎÎñËùĞèµÄÄ£°åXMLÎÄ¼ş
+	BOOL SetAutorunReg(BOOL bWrite = FALSE, BOOL bAutorun = FALSE);//è®¾ç½®è‡ªåŠ¨è¿è¡Œçš„æ³¨å†Œè¡¨é¡¹ï¼ŒbWriteå†™å…¥æˆ–è¯»å–ï¼ŒbAutorunæ˜¯å†™å…¥æ˜¯å†™å…¥æ‰§è¡Œè¿˜æ˜¯ä¸æ‰§è¡Œ
+	BOOL SetAutorunTask(BOOL bWrite = FALSE, BOOL bAutorun = FALSE);//è®¾ç½®è‡ªåŠ¨è¿è¡Œçš„è®¡åˆ’ä»»åŠ¡ï¼ŒbWriteå†™å…¥æˆ–è¯»å–ï¼ŒbAutorunæ˜¯å†™å…¥æ˜¯å†™å…¥æ‰§è¡Œè¿˜æ˜¯ä¸æ‰§è¡Œ
+	CString ExecuteCmd(CString str);//åˆ›å»ºæ–°è¿›ç¨‹æ‰§è¡Œå‘½ä»¤è¡Œä»£ç 
+	BOOL CreateTaskXml(PCSTR strXmlPath, PCSTR strTargetPath);//åˆ›å»ºè®¡åˆ’ä»»åŠ¡æ‰€éœ€çš„æ¨¡æ¿XMLæ–‡ä»¶
 	afx_msg void OnBnClickedCheckLockGpuFrequancy();
-	BOOL CheckInputFrequency(int frequency);//¼ì²éÊäÈëµÄÆµÂÊÊÇ·ñºÏÊÊ
+	BOOL CheckInputFrequency(int frequency);//æ£€æŸ¥è¾“å…¥çš„é¢‘ç‡æ˜¯å¦åˆé€‚
 	CEdit m_ctlFrequency;
 	CButton m_ctlLockGpuFrequancy;
 };
