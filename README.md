@@ -54,7 +54,8 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -ImportLegacy "D:\MyFanCont
 
 - 配置：`%ProgramData%\ClevoFan\config.json`（通过托盘的“设置”修改）
 - 日志：`%ProgramData%\ClevoFan\service.log`
-- 托盘程序：双击图标打开设置，右键菜单可开启强制冷却
+- 托盘程序：双击图标打开设置，右键菜单可开启强制冷却。设置窗口中可直接拖动曲线上的点调整各档负载（方向键微调），
+  曲线图与实际控制算法一致，并标出当前 CPU、GPU 温度
 
 ### 开发
 ```
@@ -63,6 +64,7 @@ tools\ecprobe\build.cmd                             # 编译 wmiprobe / ecprobe 
 tests\integration\service_test.ps1 -SourceDir ...   # 真机集成测试（管理员）
 dotnet build tools\gpuload -c Release -o tools\gpuload\bin\out   # GPU 满载工具（OpenCL）
 tests\integration\gpu_limit_test.ps1                # 真机 GPU 限频测试（管理员）
+tests\ui\curve_editor_test.ps1                      # 曲线编辑器界面测试（截图到 %TEMP%）
 ```
 
 ## 原贴说明
