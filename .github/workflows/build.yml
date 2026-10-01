@@ -33,3 +33,36 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${{ github.ref_name }}" Release/MyFanControl.exe --title "${{ github.ref_name }}" --generate-notes
+
+  # 新版 ClevoFan（.NET 服务 + 托盘）：运行单元测试并打包
+  clevofan:
+    runs-on: windows-2022
+    needs: build
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test
+        run: dotnet test src/ClevoFan.slnx -c Release
+
+      - name: Publish
+        run: |
+          dotnet publish src/ClevoFan.Service -c Release -o publish/ClevoFan
+          dotnet publish src/ClevoFan.Tray -c Release -o publish/ClevoFan
+          Copy-Item deploy/install.ps1, deploy/uninstall.ps1 publish/ClevoFan/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ClevoFan-${{ github.sha }}
+          path: publish/ClevoFan
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive publish/ClevoFan/* ClevoFan.zip
+          gh release upload "${{ github.ref_name }}" ClevoFan.zip
