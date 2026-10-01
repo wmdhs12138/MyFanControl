@@ -102,6 +102,9 @@ CMyFanControlDlg::CMyFanControlDlg(CWnd* pParent /*=NULL*/)
 #endif
 	m_hCoreThread = NULL;
 	m_nLastCoreUpdateTime = -1;
+	m_nLastHeartbeat = -1;
+	m_nCheckThreadCount = 0;
+	m_bStallPrompt = FALSE;
 	m_bWindowVisible = FALSE;
 	m_bAdvancedMode = TRUE;
 	m_nWindowSize[0] = 0;
@@ -155,6 +158,8 @@ BEGIN_MESSAGE_MAP(CMyFanControlDlg, CDialogEx)
 	ON_WM_QUERYDRAGICON()
 	ON_WM_WINDOWPOSCHANGING()
 	ON_WM_TIMER()
+	ON_WM_POWERBROADCAST()
+	ON_MESSAGE(WM_CORE_ERROR, &CMyFanControlDlg::OnCoreError)
 	ON_BN_CLICKED(IDC_BUTTON_SAVE, &CMyFanControlDlg::OnBnClickedButtonSave)
 	ON_BN_CLICKED(IDC_BUTTON_RESET, &CMyFanControlDlg::OnBnClickedButtonReset)
 	ON_BN_CLICKED(IDC_BUTTON_LOAD, &CMyFanControlDlg::OnBnClickedButtonLoad)
@@ -211,6 +216,14 @@ BOOL CMyFanControlDlg::OnInitDialog()
 
 
 
+	//载入配置和初始化接口都可能弹窗，必须在界面线程、启动工作线程之前完成
+	LogWrite("程序启动，编译于 " __DATE__ " " __TIME__);
+	m_core.m_hNotifyWnd = m_hWnd;
+	m_core.m_bVerbose = (strstr(::GetCommandLine(), "/verbose") != NULL);
+	if (m_core.m_bVerbose)
+		LogWrite("已开启详细日志");
+	m_core.m_config.LoadConfig();
+	m_core.Init();
 	if (m_hCoreThread == NULL)
 	{
 		DWORD dwThreadID = 0;
@@ -300,20 +313,17 @@ void CMyFanControlDlg::OnOK()
 	if (!m_core.m_nExit)
 		m_core.m_nExit = 1;
 
-	if (m_core.m_nExit == 1)//等待内核线程结束
+	if (m_hCoreThread)//等待内核线程结束
 	{
-		int count = 0;
-		while (m_core.m_nExit == 1 && count++<100)
-		{
-			Sleep(100);
-		}
+		if (WaitForSingleObject(m_hCoreThread, 10000) != WAIT_OBJECT_0)
+			LogWrite("工作线程10秒内未结束，直接退出");
+		CloseHandle(m_hCoreThread);
+		m_hCoreThread = NULL;
 	}
-	if (m_core.m_nExit)
-	{
-		KillTimer(0);
-		SetTray(NULL);
-		CDialogEx::OnOK();
-	}
+	LogWrite("程序退出");
+	KillTimer(0);
+	SetTray(NULL);
+	CDialogEx::OnOK();
 }
 
 
@@ -336,24 +346,33 @@ void CMyFanControlDlg::OnCancel()
 void CMyFanControlDlg::OnTimer(UINT_PTR nIDEvent)
 {
 	// TODO:  在此添加消息处理程序代码和/或调用默认值
-	static int nCheckThreadCount = 0;//检查工作线程状态计数器，每100ms+1
 	CDialogEx::OnTimer(nIDEvent);
 	if (m_core.m_nExit == 2)
 	{
 		OnOK();
+		return;
 	}
 
-	//检查工作线程是否卡死
-	nCheckThreadCount++;
-	if (nCheckThreadCount > 150)//内核已经15秒未完成一个循环，认为卡死，结束程序
+	//检查工作线程是否卡住：正常情况下工作线程每100ms心跳一次（睡眠状态下也是）
+	//不再强制结束线程：线程可能正在读写EC，强杀会让EC处于不确定状态
+	if (m_core.m_nHeartbeat != m_nLastHeartbeat)
 	{
-		KillTimer(0);
-		m_core.m_nExit = 2;
-		TerminateThread(m_hCoreThread, -1);//强制结束进程
-		CloseHandle(m_hCoreThread);
-		m_hCoreThread = NULL;
-		MessageBox("检测到工作线程卡死，程序将立刻结束，如果重试后问题仍然存在，说明本程序可能不适用于此电脑。");
-		OnOK();
+		m_nLastHeartbeat = m_core.m_nHeartbeat;
+		m_nCheckThreadCount = 0;
+	}
+	else if (++m_nCheckThreadCount == 150 && !m_bStallPrompt)//15秒没有心跳，只提示一次
+	{
+		m_bStallPrompt = TRUE;
+		LogWrite("工作线程已15秒没有响应");
+		int rv = MessageBox("工作线程已超过15秒没有响应，风扇控制可能没有生效。\n\n"
+			"选择“是”退出程序（退出时会尝试恢复风扇自动控制），选择“否”继续等待。",
+			NULL, MB_YESNO | MB_ICONWARNING);
+		m_bStallPrompt = FALSE;
+		if (rv == IDYES)
+		{
+			OnOK();
+			return;
+		}
 	}
 
 	if (m_core.m_nInit != 1)
@@ -379,10 +398,37 @@ void CMyFanControlDlg::OnTimer(UINT_PTR nIDEvent)
 	{
 		if (m_bWindowVisible)
 			UpdateGui(FALSE);
-		nCheckThreadCount = 0;
 		m_nLastCoreUpdateTime = m_core.m_nLastUpdateTime;
 	}
 	//
+}
+
+UINT CMyFanControlDlg::OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData)
+{
+	switch (nPowerEvent)
+	{
+	case PBT_APMSUSPEND:
+		//系统给每个程序处理睡眠通知的时间有限，最多等1.5秒
+		LogWrite("收到系统睡眠通知");
+		m_core.Suspend(1500);
+		break;
+	case PBT_APMRESUMEAUTOMATIC://每次唤醒都会收到
+	case PBT_APMRESUMESUSPEND://用户操作唤醒时还会收到
+		LogWrite("收到系统唤醒通知(%u)", nPowerEvent);
+		m_nCheckThreadCount = 0;
+		m_core.Resume();
+		break;
+	}
+	return CDialogEx::OnPowerBroadcast(nPowerEvent, nEventData);
+}
+
+LRESULT CMyFanControlDlg::OnCoreError(WPARAM wParam, LPARAM lParam)
+{
+	CString *p = (CString *)lParam;
+	CString str = *p;
+	delete p;
+	MessageBox(str, NULL, MB_ICONWARNING);
+	return 0;
 }
 
 void CMyFanControlDlg::UpdateGui(BOOL bFull)

@@ -41,6 +41,9 @@ public:
 	CCore m_core;//温度控制内核
 	HANDLE m_hCoreThread;//内核线程
 	int m_nLastCoreUpdateTime;//内核最后更新时间
+	int m_nLastHeartbeat;//上次看到的内核心跳
+	int m_nCheckThreadCount;//内核心跳未变化的计时器次数，每100ms+1
+	BOOL m_bStallPrompt;//正在显示工作线程无响应的提示框
 	CListCtrl m_ctlStatus;// 状态表控件
 	CButton m_ctlTakeOver;
 	CButton m_ctlForcedCooling;
@@ -59,6 +62,8 @@ public:
 	virtual void OnOK();
 	virtual void OnCancel();
 	afx_msg void OnTimer(UINT_PTR nIDEvent);
+	afx_msg UINT OnPowerBroadcast(UINT nPowerEvent, LPARAM nEventData);//系统睡眠/唤醒通知
+	afx_msg LRESULT OnCoreError(WPARAM wParam, LPARAM lParam);//内核工作线程报告的错误
 	void UpdateGui(BOOL bFull);//更新界面，bFull为是否完整更新，包括自定义转速设置，如果为否，只更新风扇状态
 	BOOL CheckAndSave();//检查表单填写是否正确，如果正确则保存返回TRUE，不正确则返回FALSE
 	afx_msg void OnBnClickedButtonSave();

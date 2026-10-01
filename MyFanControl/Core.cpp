@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "Core.h"
+#include <mutex>
+#include <share.h>
 
 
 int TEMP_LIST[10] = { 90, 85, 80, 75, 70, 65, 60, 55, 50, 45 };
@@ -51,6 +53,44 @@ CString GetExePath(){
 	CString fname = pathbuf;
 	return fname;
 }
+void LogWrite(const char *fmt, ...)
+{
+	static std::mutex mtx;
+	std::lock_guard<std::mutex> lock(mtx);
+	static const CString strPath = GetExePath() + "\\MyFanControl.log";
+
+	//超过1MB时转存为.old，只保留一份旧日志
+	WIN32_FILE_ATTRIBUTE_DATA fad;
+	if (GetFileAttributesEx(strPath, GetFileExInfoStandard, &fad) && (fad.nFileSizeHigh || fad.nFileSizeLow > 1024 * 1024))
+		MoveFileEx(strPath, strPath + ".old", MOVEFILE_REPLACE_EXISTING);
+
+	FILE *fp = NULL;
+	for (int i = 0; i < 5 && !fp; i++)//日志文件可能被其他程序短暂占用（如杀毒软件扫描、编辑器读取），稍等重试
+	{
+		fp = _fsopen(strPath, "a", _SH_DENYNO);
+		if (!fp)
+			Sleep(10);
+	}
+	if (!fp)
+		return;
+	SYSTEMTIME st;
+	GetLocalTime(&st);
+	fprintf(fp, "%04d-%02d-%02d %02d:%02d:%02d.%03d [%5lu] ", st.wYear, st.wMonth, st.wDay,
+		st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, GetCurrentThreadId());
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(fp, fmt, ap);
+	va_end(ap);
+	fputs("\n", fp);
+	fclose(fp);
+}
+static ULONGLONG GetAwakeTimeMs()
+{
+	//不含睡眠/休眠时间的系统运行时间
+	ULONGLONG t = 0;
+	QueryUnbiasedInterruptTime(&t);
+	return t / 10000;
+}
 
 
 CGPUInfo::CGPUInfo()
@@ -62,6 +102,7 @@ CGPUInfo::CGPUInfo()
 	if (m_hGPUdll == NULL)
 	{
 		TRACE0("无法加载" + dllpth+"\n");
+		LogWrite("无法加载%s，错误码%lu，GPU相关功能不可用", (LPCSTR)dllpth, GetLastError());
 		return;
 	}
 
@@ -93,6 +134,7 @@ CGPUInfo::CGPUInfo()
 	if (m_pfnInitGPU_API())
 	{
 		TRACE0("InitGPU_API初始化失败。\n");
+		LogWrite("InitGPU_API初始化失败，GPU相关功能不可用");
 		FreeLibrary(m_hGPUdll);
 		m_hGPUdll = NULL;
 		return;
@@ -164,23 +206,24 @@ BOOL CGPUInfo::LockFrequency(int frequency)
 		MemOverclock = GpuOverclock * m_nMemoryRangeMax / m_nGraphicsRangeMax;//按照比例进行显存超频
 	}
 
-	//
+	//此函数会在工作线程调用，不能弹窗，错误信息交给调用者处理
+	m_strLastError.Empty();
 	int rv1 = (m_pfnSet_CoreOC(0, GpuOverclock) == 0);
 	if (!rv1)
-		AfxMessageBox("Set_CoreOC失败");
+		m_strLastError += "Set_CoreOC失败\n";
 	//
 	int rv2 = (m_pfnSet_MEMOC(0, MemOverclock) == 0);
 	if (!rv2)
-		AfxMessageBox("Set_MEMOC失败");
+		m_strLastError += "Set_MEMOC失败\n";
 	//
 	int rv3 = (m_pfnLock_Frequency(0, GpuClock) == 0x19);
 	if (!rv3)
-		AfxMessageBox("Lock_Frequency失败");
+		m_strLastError += "Lock_Frequency失败\n";
 	//
 	int rv4 = 1;
 	//int rv4 = (m_pfnLock_Frequency_MEM(0, MemClock) == 0x19);
 	if (!rv4)
-		AfxMessageBox("Lock_Frequency_MEM失败");
+		m_strLastError += "Lock_Frequency_MEM失败\n";
 	//
 	return (rv1 && rv2 && rv3 && rv4);
 }
@@ -274,6 +317,11 @@ CCore::CCore()
 	//
 	m_nInit = 0;
 	m_nExit = 0;
+	m_nHeartbeat = 0;
+	m_bSuspendRequest = FALSE;
+	m_hSuspendAck = CreateEvent(NULL, TRUE, FALSE, NULL);
+	m_hNotifyWnd = NULL;
+	m_bVerbose = FALSE;
 	m_hInstDLL = NULL;
 	for (int i = 0; i < 2; i++)
 	{
@@ -285,7 +333,7 @@ CCore::CCore()
 		m_nCurRPM[i]=0;//当前转速
 	}
 	m_bUpdateRPM=0;//是否更新转速，如果为0，只更新风扇温度和负载
-	m_nLastUpdateTime = GetTime(0, -5);
+	m_nLastUpdateTime = 0;
 	m_bForcedCooling = FALSE;
 	m_bTakeOverStatus = FALSE;
 	m_bForcedRefresh = FALSE;
@@ -293,6 +341,8 @@ CCore::CCore()
 CCore::~CCore()
 {
 	Uninit();
+	if (m_hSuspendAck)
+		CloseHandle(m_hSuspendAck);
 }
 
 BOOL CCore::Init()
@@ -312,6 +362,7 @@ BOOL CCore::Init()
 	m_hInstDLL = LoadLibrary(dllpth);
 	if (m_hInstDLL == NULL)
 	{
+		LogWrite("无法加载%s，错误码%lu", (LPCSTR)dllpth, GetLastError());
 		AfxMessageBox("无法加载" + dllpth + "，请确保该文件在程序目录下，并且已安装NTPortDrv。");
 		return FALSE;
 	}
@@ -332,6 +383,7 @@ BOOL CCore::Init()
 	{
 		FreeLibrary(m_hInstDLL);
 		m_hInstDLL = NULL;
+		LogWrite("ClevoEcInfo.dll缺少InitIo");
 		AfxMessageBox("错误的ClevoEcInfo.dll");
 		return FALSE;
 	}
@@ -340,6 +392,7 @@ BOOL CCore::Init()
 	{
 		FreeLibrary(m_hInstDLL);
 		m_hInstDLL = NULL;
+		LogWrite("InitIo返回值错误");
 		AfxMessageBox("接口初始化返回值错误！");
 		return FALSE;
 	}
@@ -358,6 +411,7 @@ BOOL CCore::Init()
 	*/
 	//
 	TRACE0("内核初始化成功。\n");
+	LogWrite("内核初始化成功");
 	m_nInit = 1;
 	return TRUE;
 }
@@ -375,21 +429,59 @@ void CCore::Run()
 {
 	ULONGLONG nNextCheckTick = 0;//下一个更新时间，使用单调时钟，避免睡眠跨午夜或系统时间回调后长时间不更新
 	static BOOL bSetPriority = FALSE;
-	m_config.LoadConfig();
-	//m_nInit = 2;
-	//Sleep(3000);
-	if (!m_nInit)
-		Init();
+	BOOL bSuspended = FALSE;//睡眠状态只由工作线程维护
+	ULONGLONG nSuspendTime = 0;
+	const char *pszReadingTag = "启动后首次";//非空时，在下一轮Work()后记录EC读数
+	//配置文件和Init()已由界面线程在启动本线程前完成，这里不会弹窗阻塞
 
 	if (m_nInit == 1)
 	{
 		TRACE0("内核开始运行。\n");
+		LogWrite("工作线程开始运行");
 		while (!m_nExit)
 		{
+			m_nHeartbeat++;
+			BOOL bSuspendRequest = m_bSuspendRequest;
+			if (bSuspendRequest && !bSuspended)
+			{
+				//系统即将睡眠：交还风扇给EC自动控制，之后不再读写EC，直到唤醒
+				ResetFan();
+				bSuspended = TRUE;
+				nSuspendTime = GetAwakeTimeMs();
+				LogWrite("系统即将睡眠，已交还EC自动控制（最近读数 CPU %d℃ 负载%d%%，GPU %d℃ 负载%d%%）",
+					m_nCurTemp[0], m_nCurDuty[0], m_nCurTemp[1], m_nCurDuty[1]);
+			}
+			else if (!bSuspendRequest && bSuspended)
+			{
+				bSuspended = FALSE;
+				m_bForcedRefresh = TRUE;
+				pszReadingTag = "唤醒后首次";
+				LogWrite("系统已唤醒，恢复风扇控制");
+			}
+			if (bSuspended)
+			{
+				SetEvent(m_hSuspendAck);
+				//收不到唤醒通知（例如睡眠失败）时，醒着的时间累计超过2分钟就自动恢复，避免一直不控制风扇
+				if (GetAwakeTimeMs() - nSuspendTime > 120 * 1000)
+				{
+					LogWrite("睡眠状态下已醒着2分钟仍未收到唤醒通知，自动恢复控制");
+					m_bSuspendRequest = FALSE;
+				}
+				Sleep(100);
+				continue;
+			}
 			if (GetTickCount64() >= nNextCheckTick || m_bForcedRefresh)
 			{
 				//MessageBox(NULL , "工作中...", "MyFunColtrol" , 0);
 				Work();
+				if (pszReadingTag || m_bVerbose)
+				{
+					//m_nCurDuty是本轮设置转速之前从EC读到的值
+					LogWrite("%s读数（本轮接管前）：CPU %d℃ 负载%d%%，GPU %d℃ 负载%d%%，接管控制=%d，设定负载%d%%/%d%%",
+						pszReadingTag ? pszReadingTag : "", m_nCurTemp[0], m_nCurDuty[0], m_nCurTemp[1], m_nCurDuty[1],
+						m_config.TakeOver, m_nSetDuty[0], m_nSetDuty[1]);
+					pszReadingTag = NULL;
+				}
 				m_nLastUpdateTime = (int)GetTickCount();//更新时间，界面只判断其是否变化
 				nNextCheckTick = GetTickCount64() + m_config.UpdateInterval * 1000;//下一个更新时间
 				m_bForcedRefresh = FALSE;
@@ -402,8 +494,34 @@ void CCore::Run()
 			Sleep(100);
 		}
 		TRACE0("内核结束运行。\n");
+		LogWrite("工作线程结束运行");
 	}
 	m_nExit = 2;
+}
+BOOL CCore::Suspend(DWORD dwTimeout)
+{
+	if (m_nInit != 1 || m_nExit)
+		return TRUE;
+	ResetEvent(m_hSuspendAck);
+	m_bSuspendRequest = TRUE;
+	if (WaitForSingleObject(m_hSuspendAck, dwTimeout) == WAIT_OBJECT_0)
+		return TRUE;
+	LogWrite("工作线程未能在%lu毫秒内交还风扇控制", dwTimeout);
+	return FALSE;
+}
+void CCore::Resume()
+{
+	m_bSuspendRequest = FALSE;
+}
+void CCore::ReportError(const CString &str)
+{
+	LogWrite("%s", (LPCSTR)str);
+	if (m_hNotifyWnd)
+	{
+		CString *p = new CString(str);
+		if (!::PostMessage(m_hNotifyWnd, WM_CORE_ERROR, 0, (LPARAM)p))
+			delete p;
+	}
 }
 void CCore::Work()
 {
@@ -437,6 +555,11 @@ void CCore::Work()
 		m_GpuInfo.LockFrequency(m_config.GPUFrequency);
 	else
 		m_GpuInfo.LockFrequency(0);
+	if (!m_GpuInfo.m_strLastError.IsEmpty())
+	{
+		ReportError("GPU频率设置失败：\n" + m_GpuInfo.m_strLastError);
+		m_GpuInfo.m_strLastError.Empty();
+	}
 }
 void CCore::Update()
 {

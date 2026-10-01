@@ -1,11 +1,15 @@
 #pragma once
 using namespace std;
 #include <string>
+#include <atomic>
 
+//内核发给界面的消息，lParam为new出来的CString*，由界面负责delete
+#define WM_CORE_ERROR (WM_APP + 1)
 
 int GetTime(tm *pt = 0, int offset = 0);//得到当前时间，6位数时间92500,offset用于得到offset之后秒的时间
 int GetTimeInterval(int a, int b, int *p = 0);//时间差，输入两个6位数时间，如开盘时间91500，得到a-b，并转化为6位数时间，指针p接受以秒计的时间差
 CString GetExePath();//获得exe当前运行路径
+void LogWrite(const char *fmt, ...);//写日志到程序目录下的MyFanControl.log，线程安全
 
 
 struct ECData
@@ -56,6 +60,7 @@ public:
 public:
 	BOOL Update();//更新GPU频率和使用率
 	BOOL LockFrequency(int frequency = 0);//锁定最大频率，可以用于超频，应小于m_nBoostClock+(m_nGraphicsRangeMax - m_nGraphicsRangeMin)，若设置0，则还原设置
+	CString m_strLastError;//LockFrequency失败时的错误信息，由调用者读取后清空
 
 protected:
 	HMODULE m_hGPUdll;
@@ -124,9 +129,16 @@ protected:
 	GetECVersion	*	m_pfnGetECVersion;
 	GetFanRpm		*	m_pfnGetFANRPM[2];
 
+	HANDLE m_hSuspendAck;//工作线程处于睡眠状态（已交还风扇控制）时置位
+
 public:
-	BOOL m_nInit;//是否初始化，0未初始化，1初始化成功，2初始化失败
-	int m_nExit;//退出信号，0，不退出，1，需要退出，2，内核已退出
+	//以下标志由界面线程和工作线程共享
+	atomic<int> m_nInit;//是否初始化，0未初始化，1初始化成功，-1初始化失败
+	atomic<int> m_nExit;//退出信号，0，不退出，1，需要退出，2，内核已退出
+	atomic<int> m_nHeartbeat;//工作线程每循环一次加1，供界面检测线程是否卡住
+	atomic<BOOL> m_bSuspendRequest;//请求睡眠：工作线程交还风扇控制后不再读写EC，清除后恢复控制
+	HWND m_hNotifyWnd;//接收WM_CORE_ERROR的窗口
+	BOOL m_bVerbose;//详细日志，每轮更新都记录读数（命令行参数/verbose）
 	HINSTANCE m_hInstDLL;//模块dll
 	CConfig m_config;//配置文件
 	CGPUInfo m_GpuInfo;//gpu频率控制对象
@@ -136,16 +148,19 @@ public:
 	int m_nSetDutyLevel[2];//设置的转速挡位，最低速档为1，最高速档为10
 	int m_nCurDuty[2];//当前负载
 	int m_nCurRPM[2];//当前转速
-	BOOL m_bUpdateRPM;//是否更新转速，如果为0，只更新风扇温度和负载
-	int m_nLastUpdateTime;//最后更新时间（GetTickCount），用于判断内核是否完成了新一轮更新
-	BOOL m_bForcedCooling;//强制冷却
+	atomic<BOOL> m_bUpdateRPM;//是否更新转速，如果为0，只更新风扇温度和负载
+	atomic<int> m_nLastUpdateTime;//最后更新时间（GetTickCount），用于判断内核是否完成了新一轮更新
+	atomic<BOOL> m_bForcedCooling;//强制冷却
 	BOOL m_bTakeOverStatus;//接管控制状态，描述最后一次调用的是m_pfnSetFanDuty（TRUE）还是m_pfnSetFANDutyAuto（FALSE）
-	BOOL m_bForcedRefresh;//立即刷新
+	atomic<BOOL> m_bForcedRefresh;//立即刷新
 
 public:
 	BOOL Init();
 	void Uninit();
 	void Run();//内核主循环
+	BOOL Suspend(DWORD dwTimeout);//系统即将睡眠，由界面线程调用，等待工作线程交还风扇控制，超时返回FALSE
+	void Resume();//系统已唤醒，由界面线程调用
+	void ReportError(const CString &str);//记录日志并通知界面弹窗，可在工作线程调用
 	void Work();//更新温度、负载，计算负载并进行设置
 	void Update();//更新风扇状态
 	void Control();//控制
