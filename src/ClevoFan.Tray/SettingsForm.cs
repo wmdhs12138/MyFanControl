@@ -18,6 +18,21 @@ internal sealed class SettingsForm : Form
     private readonly Button _defaults = new() { Text = "恢复默认值", AutoSize = true };
     private readonly Button _reload = new() { Text = "重新读取", AutoSize = true };
     private readonly TableLayoutPanel _root = new() { ColumnCount = 1, AutoSize = true, Padding = new Padding(12) };
+    private readonly CheckBox _gpuLimit = new() { Text = "限制 GPU 最高频率（只限制，不超频）", AutoSize = true, Anchor = AnchorStyles.Left };
+    private readonly NumericUpDown _gpuMax = new()
+    {
+        Minimum = FanConfig.MinGpuClockMHz,
+        Maximum = FanConfig.MaxGpuClockMHz,
+        Increment = 15,
+        Width = 80,
+        TextAlign = HorizontalAlignment.Right,
+    };
+    private readonly Label _gpuInfo = new() { AutoSize = true, ForeColor = SystemColors.GrayText };
+    private readonly Label _gpuLive = new() { AutoSize = true, ForeColor = SystemColors.GrayText };
+    private readonly System.Windows.Forms.Timer _liveTimer = new() { Interval = 2000 };
+    private bool _gpuAvailable = true;
+    private bool _gpuRangeSet;
+    private bool _liveBusy;
 
     public SettingsForm()
     {
@@ -40,6 +55,8 @@ internal sealed class SettingsForm : Form
         root.Controls.Add(BuildCurveTable());
         root.Controls.Add(Header("选项"));
         root.Controls.Add(BuildOptions());
+        root.Controls.Add(Header("GPU 限频"));
+        root.Controls.Add(BuildGpu());
         var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
         buttons.Controls.AddRange([_save, _defaults, _reload]);
         root.Controls.Add(buttons);
@@ -53,9 +70,14 @@ internal sealed class SettingsForm : Form
         Load += async (_, _) =>
         {
             FitToContent();
+            _liveTimer.Start();
             await LoadConfigAsync();
+            await RefreshGpuLiveAsync();
         };
+        FormClosed += (_, _) => _liveTimer.Dispose();
         DpiChanged += (_, _) => BeginInvoke(FitToContent);
+        _liveTimer.Tick += async (_, _) => await RefreshGpuLiveAsync();
+        _gpuLimit.CheckedChanged += (_, _) => _gpuMax.Enabled = _gpuAvailable && _gpuLimit.Checked;
         //读到服务端配置之前显示默认值，并禁止保存，避免把没读到的配置写回去
         Fill(new FanConfig());
         _save.Enabled = false;
@@ -81,6 +103,63 @@ internal sealed class SettingsForm : Form
         _cpuStatus.Text = StatusText.Fan("CPU", s.CpuTemp, s.CpuDutyPercent, s.CpuRpm, s.CpuTargetPercent);
         _gpuStatus.Text = StatusText.Fan("GPU", s.GpuTemp, s.GpuDutyPercent, s.GpuRpm, s.GpuTargetPercent);
         _state.Text = "状态：" + StatusText.State(s);
+        ShowGpu(s);
+    }
+
+    private void ShowGpu(FanStatus s)
+    {
+        _gpuAvailable = s.GpuName is not null;
+        _gpuLimit.Enabled = _gpuAvailable;
+        _gpuMax.Enabled = _gpuAvailable && _gpuLimit.Checked;
+        if (!_gpuAvailable)
+        {
+            _gpuInfo.Text = s.GpuMessage ?? "没有可用的 NVIDIA GPU";
+            return;
+        }
+        if (!_gpuRangeSet && s.GpuMinClockMHz is int min && s.GpuMaxClockMHz is int max)
+        {
+            //改为显卡实际支持的范围，超出的值收回到范围内
+            var value = _gpuMax.Value;
+            _gpuMax.Maximum = Math.Max(max, FanConfig.MinGpuClockMHz);
+            _gpuMax.Minimum = Math.Max(min, FanConfig.MinGpuClockMHz);
+            _gpuMax.Value = Math.Clamp(value, _gpuMax.Minimum, _gpuMax.Maximum);
+            _gpuRangeSet = true;
+        }
+        var applied = s.GpuClockLimitMHz is int limit ? $"当前限制为 {limit} MHz" : "当前未限频";
+        _gpuInfo.Text = $"{s.GpuName}，可设 {s.GpuMinClockMHz}-{s.GpuMaxClockMHz} MHz。{applied}" + (s.GpuMessage is { } m ? $"\n{m}" : "");
+    }
+
+    //只在窗口打开时读取实时频率；独显未通电时服务不会去唤醒它
+    private async Task RefreshGpuLiveAsync()
+    {
+        if (_liveBusy || !_gpuAvailable)
+            return;
+        _liveBusy = true;
+        try
+        {
+            var response = await ServiceConnection.TrySendAsync(new PipeRequest { Command = FanPipe.Commands.GpuLive });
+            _gpuLive.Text = response?.GpuLive switch
+            {
+                { PoweredOn: true } g => $"当前频率 {g.ClockMHz} MHz，利用率 {g.UtilizationPercent}%",
+                { PoweredOn: false } => "独显未通电（不读取实时频率，避免唤醒）",
+                null => response?.Error ?? "",
+            };
+        }
+        finally
+        {
+            _liveBusy = false;
+        }
+    }
+
+    private TableLayoutPanel BuildGpu()
+    {
+        var table = new TableLayoutPanel { ColumnCount = 1, AutoSize = true };
+        var row = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0) };
+        row.Controls.AddRange([_gpuLimit, _gpuMax, Cell("MHz")]);
+        table.Controls.Add(row);
+        table.Controls.Add(_gpuInfo);
+        table.Controls.Add(_gpuLive);
+        return table;
     }
 
     private TableLayoutPanel BuildCurveTable()
@@ -172,6 +251,10 @@ internal sealed class SettingsForm : Form
         _transition.Value = config.TransitionTemp;
         _interval.Value = config.UpdateIntervalSeconds;
         _forceTemp.Value = config.ForceCoolingTemp;
+        _gpuLimit.Checked = config.GpuClockLimitEnabled;
+        //未设置过（0）时显示最高频率，即不限
+        _gpuMax.Value = Math.Clamp(config.GpuMaxClockMHz > 0 ? config.GpuMaxClockMHz : _gpuMax.Maximum, _gpuMax.Minimum, _gpuMax.Maximum);
+        _gpuMax.Enabled = _gpuAvailable && _gpuLimit.Checked;
     }
 
     private FanConfig Collect() => new()
@@ -183,6 +266,8 @@ internal sealed class SettingsForm : Form
         TransitionTemp = (int)_transition.Value,
         UpdateIntervalSeconds = (int)_interval.Value,
         ForceCoolingTemp = (int)_forceTemp.Value,
+        GpuClockLimitEnabled = _gpuLimit.Checked,
+        GpuMaxClockMHz = (int)_gpuMax.Value,
     };
 
     private static void AddRow(TableLayoutPanel table, int row, string label, Control control)

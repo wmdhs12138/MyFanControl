@@ -21,6 +21,9 @@ public static class FanPipe
         public const string GetConfig = "getConfig";
         public const string SetConfig = "setConfig";
         public const string ForceCooling = "forceCooling";
+
+        /// <summary>GPU 实时频率和利用率，供设置窗口打开时使用；独显未通电时不读取。</summary>
+        public const string GpuLive = "gpuLive";
     }
 }
 
@@ -37,6 +40,7 @@ public sealed class PipeResponse
     public string? Error { get; set; }
     public FanStatus? Status { get; set; }
     public FanConfig? Config { get; set; }
+    public GpuLiveStatus? GpuLive { get; set; }
 
     public static PipeResponse Fail(string error) => new() { Error = error };
 }

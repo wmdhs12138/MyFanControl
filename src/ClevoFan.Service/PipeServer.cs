@@ -107,12 +107,20 @@ public sealed class PipeServer(FanSupervisor supervisor, ILoggerFactory loggerFa
                 case FanPipe.Commands.ForceCooling when request.On is { } on:
                     supervisor.SetForcedCooling(on);
                     return new PipeResponse { Ok = true };
+                case FanPipe.Commands.GpuLive:
+                    var live = supervisor.ReadGpuLive();
+                    return live is null ? PipeResponse.Fail(supervisor.Status.GpuMessage ?? "没有可用的 GPU") : new PipeResponse { Ok = true, GpuLive = live };
                 default:
                     return PipeResponse.Fail("未知命令：" + request?.Command);
             }
         }
         catch (ArgumentException e)
         {
+            return PipeResponse.Fail(e.Message);
+        }
+        catch (InvalidOperationException e)
+        {
+            //例如读取 GPU 实时状态时 NVML 出错
             return PipeResponse.Fail(e.Message);
         }
         catch (IOException e)

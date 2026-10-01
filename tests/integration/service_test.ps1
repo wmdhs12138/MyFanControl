@@ -96,6 +96,8 @@ function LogSince($mark, $pattern) { @(LogLines | Select-Object -Skip $mark | Wh
 if (-not (Test-Path $wmi)) { throw "找不到 $wmi，请先运行 tools\ecprobe\build.cmd" }
 $legacy = Get-Process MyFanControl -ErrorAction SilentlyContinue | Select-Object -First 1
 $withLegacy = $LegacyDir -and $legacy
+#安装脚本会结束正在运行的托盘（这里用 -NoTray 安装，不会重新启动），测试结束后恢复
+$trayWasRunning = [bool](Get-Process ClevoFan.Tray -ErrorAction SilentlyContinue)
 try {
     # 1. 安装（有旧版时导入其配置），并确保开启接管
     $mark = (LogLines).Count
@@ -195,6 +197,11 @@ finally {
         if (-not (Get-Process MyFanControl -ErrorAction SilentlyContinue)) {
             Start-Process -FilePath (Join-Path $LegacyDir 'MyFanControl.exe') -WorkingDirectory $LegacyDir | Out-Null
         }
+    }
+    if ($trayWasRunning -and -not (Get-Process ClevoFan.Tray -ErrorAction SilentlyContinue)) {
+        #通过资源管理器启动，托盘以普通权限运行
+        Start-Process explorer.exe -ArgumentList "`"$(Join-Path $env:ProgramFiles 'ClevoFan\ClevoFan.Tray.exe')`""
+        Log '已重新启动托盘程序'
     }
     Log ("结束：服务 {0}/{1}，旧版运行中 {2}" -f (Get-Service ClevoFan -ErrorAction SilentlyContinue).Status, (Get-Service ClevoFan -ErrorAction SilentlyContinue).StartType, [bool](Get-Process MyFanControl -ErrorAction SilentlyContinue))
     Log "===== $script:fail 项失败，日志 $out"

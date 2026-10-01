@@ -16,7 +16,8 @@ public static class LegacyConfig
             v[i] = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(i * sizeof(int)));
 
         // 布局：CPU 10 档、GPU 10 档、过渡温度、更新间隔、线性、接管、强制冷却温度、GPU 限频开关、GPU 频率
-        // GPU 限频暂不支持，忽略最后两项
+        // 原程序 GPU 频率为 0 表示不限频；高于默认频率表示超频，新版不支持超频，应用时会因超出范围而不生效
+        bool gpuLimit = v[25] != 0 && v[26] > 0;
         var config = new FanConfig
         {
             CpuCurve = v[0..10],
@@ -26,6 +27,8 @@ public static class LegacyConfig
             Linear = v[22] != 0,
             TakeOver = v[23] != 0,
             ForceCoolingTemp = v[24],
+            GpuClockLimitEnabled = gpuLimit,
+            GpuMaxClockMHz = gpuLimit ? v[26] : 0,
         };
         var errors = config.Validate();
         if (errors.Count > 0)

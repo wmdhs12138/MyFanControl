@@ -39,8 +39,10 @@ public sealed class ConfigStore(string path)
         if (errors.Count > 0)
             throw new ArgumentException(string.Join("；", errors), nameof(config));
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
+        var copy = config.Clone();
+        copy.Version = FanConfig.CurrentVersion;
         var tmp = Path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(config, JsonOptions));
+        File.WriteAllText(tmp, JsonSerializer.Serialize(copy, JsonOptions));
         File.Move(tmp, Path, overwrite: true);
     }
 }

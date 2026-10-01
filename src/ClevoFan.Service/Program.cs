@@ -16,6 +16,20 @@ if (args is ["--import-legacy", var legacyPath])
     return 0;
 }
 
+//ClevoFan.Service.exe --gpu-info：只读显示 GPU 信息，用于诊断（读取实时频率会唤醒未通电的独显）
+if (args is ["--gpu-info"])
+{
+    using var gpu = new NvmlGpuBackend();
+    bool on = gpu.IsPoweredOn();
+    Console.WriteLine($"name={gpu.Name}\nmin_mhz={gpu.MinClockMHz}\nmax_mhz={gpu.MaxClockMHz}\npowered_on={on}");
+    if (on)
+    {
+        var (clock, utilization) = gpu.ReadLive();
+        Console.WriteLine($"clock_mhz={clock}\nutilization={utilization}");
+    }
+    return 0;
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "ClevoFan");
 if (WindowsServiceHelpers.IsWindowsService())
@@ -27,11 +41,14 @@ if (!WindowsServiceHelpers.IsWindowsService())
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 builder.Services.AddSingleton<IFanBackend>(_ => new ClevoWmiBackend());
+builder.Services.AddSingleton<GpuHolder>();
 builder.Services.AddSingleton(sp =>
 {
     var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("ClevoFan");
     var controller = new FanController(sp.GetRequiredService<IFanBackend>(), logger);
-    return new FanSupervisor(controller, LoadConfig(store, logger), store, logger, IsLegacyRunning, NativeMethods.AwakeMilliseconds);
+    var gpu = sp.GetRequiredService<GpuHolder>();
+    return new FanSupervisor(controller, LoadConfig(store, logger), store, logger, IsLegacyRunning, NativeMethods.AwakeMilliseconds,
+        gpu.Backend is { } backend ? new GpuLimiter(backend, logger) : null, gpu.UnavailableReason);
 });
 builder.Services.AddHostedService<FanWorker>();
 builder.Services.AddHostedService<PipeServer>();

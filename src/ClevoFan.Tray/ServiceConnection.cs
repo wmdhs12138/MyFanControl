@@ -39,7 +39,8 @@ internal static class StatusText
     /// <summary>托盘提示最多 127 个字符。</summary>
     public static string Tooltip(FanStatus s)
     {
-        var text = $"CPU {s.CpuTemp}℃ {s.CpuDutyPercent}%   GPU {s.GpuTemp}℃ {s.GpuDutyPercent}%\n{State(s)}";
+        var gpuLimit = s.GpuClockLimitMHz is int limit ? $"，GPU 限频 {limit} MHz" : "";
+        var text = $"CPU {s.CpuTemp}℃ {s.CpuDutyPercent}%   GPU {s.GpuTemp}℃ {s.GpuDutyPercent}%\n{State(s)}{gpuLimit}";
         return text.Length <= 127 ? text : text[..127];
     }
 
