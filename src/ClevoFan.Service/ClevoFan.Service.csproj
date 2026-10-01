@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ClevoFan.Service</RootNamespace>
+    <AssemblyName>ClevoFan.Service</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ClevoFan.Core\ClevoFan.Core.csproj" />
+    <ProjectReference Include="..\ClevoFan.Hardware\ClevoFan.Hardware.csproj" />
+  </ItemGroup>
+
+</Project>

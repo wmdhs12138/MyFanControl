@@ -28,6 +28,40 @@ msbuild MyFanControl.sln /p:Configuration=Release /p:Platform=Win32
 ```
 源码为 UTF-8，编译选项指定窄字符串按 GBK 生成（程序使用多字节字符集）。
 
+## ClevoFan（新版）
+
+用 .NET 10 重写的风扇控制，控制逻辑（阶梯/线性曲线、过渡温度、强制冷却）与原程序相同，配置可以直接导入。
+
+与原程序的区别：
+- **不需要任何驱动**：通过 BIOS 自带的 WMI 接口（`\_SB.WMI.WMBB`）读写风扇，由 Windows 的 ACPI 驱动执行，
+  与系统自身的 EC 访问同步；不再需要 NTPort 和 `ClevoEcInfo.dll`，可以开启内存完整性（HVCI）。
+  协议见 [docs/ec-protocol.md](docs/ec-protocol.md)
+- **后台服务**：开机即运行，不需要登录或 UAC 确认；托盘程序以普通权限运行，关闭托盘不影响控温
+- **失效保护**：睡眠前、服务停止时、温度读数异常（低于 10℃ 或高于 110℃）时、访问硬件出错时交还 EC 自动控制；
+  启动时先交还一次，避免上次异常退出后停在手动模式；检测到原程序正在运行时暂停接管，避免两个程序同时控制
+- 暂不支持 GPU 限频和 GPU 频率、使用率显示
+
+已在 NH5x_7xRDx（Insyde BIOS，EC 07.05HE1）上测试。其他 Clevo 机型的 BIOS 若没有这个 WMI 接口，服务无法启动，原因记录在日志中。
+
+### 安装
+需要 [.NET 10 桌面运行时](https://dotnet.microsoft.com/download/dotnet/10.0)。从 Release 或 Actions 编译产物下载 `ClevoFan`，
+以管理员身份运行（导入原程序配置为可选）：
+```
+powershell -ExecutionPolicy Bypass -File install.ps1 -ImportLegacy "D:\MyFanControl-v1.0\MyFanControl.cfg"
+```
+安装后请不要再运行原程序（同时运行时新服务会暂停接管）。卸载：`uninstall.ps1`（加 `-Purge` 同时删除配置和日志）。
+
+- 配置：`%ProgramData%\ClevoFan\config.json`（通过托盘的“设置”修改）
+- 日志：`%ProgramData%\ClevoFan\service.log`
+- 托盘程序：双击图标打开设置，右键菜单可开启强制冷却
+
+### 开发
+```
+dotnet test src/ClevoFan.slnx                       # 单元测试（模拟硬件）
+tools\ecprobe\build.cmd                             # 编译 wmiprobe / ecprobe 硬件探针
+tests\integration\service_test.ps1 -SourceDir ...   # 真机集成测试（管理员）
+```
+
 ## 原贴说明
 1. 输入数值后要点保存才能生效。
 2. 程序退出时会还原所有更改，包括还原风扇控制策略到原厂默认、解除GPU限频。

@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="ClevoFan.Core/ClevoFan.Core.csproj" />
+  <Project Path="ClevoFan.Hardware/ClevoFan.Hardware.csproj" />
+  <Project Path="ClevoFan.Service/ClevoFan.Service.csproj" />
+  <Project Path="ClevoFan.Tests/ClevoFan.Tests.csproj" />
+  <Project Path="ClevoFan.Tray/ClevoFan.Tray.csproj" />
+</Solution>
